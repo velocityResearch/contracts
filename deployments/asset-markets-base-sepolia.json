@@ -1,0 +1,128 @@
+{
+  "chainId": 84532,
+  "network": "Base Sepolia",
+  "rpcUrl": "https://base-sepolia-rpc.publicnode.com",
+  "officialRpcUrl": "https://sepolia.base.org",
+  "explorerUrl": "https://sepolia.basescan.org",
+  "deployedAt": "2026-09-15T23:52:08Z",
+  "generation": "Market-unit generation: one market per (reserve, asset), quoted in a factory-minted unit named by the owner's asset approval, with float yield paid to staked liquidity providers through a per-market LpRewardDistributor. Replaces the buyback generation wholesale; nothing from the 2026-09-14 deployment is reused except the Arbitrum Sepolia sUSDai hub, which was repointed rather than redeployed.",
+  "deployer": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9",
+  "sourceCommit": null,
+  "sourceCommitNote": "Deployed from the working tree during the application migration; the contracts are the ones committed in 'Pay market float yield to LPs instead of buying back the asset'.",
+  "runner": "script/run-base-sepolia-deploy.sh",
+  "contracts": {
+    "usdg": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+    "asset": "0x0ef8e07b6cd00Df5FDEAac4414293c904a97459d",
+    "yieldSource": "0x9c49e7D9D969AEfd7E0EBF0ad5eC20636794baB9",
+    "feeHook": "0x733730f6FD05c45Bdf56B3bB119EEc9596EF00CC",
+    "reserve": "0x8176AA7C41E5AF467Bb71b67dDDc5dC06b50D704",
+    "factory": "0x512B12bbd112a31314B0567Bd70C6f38a62AD509",
+    "router": "0xCA09922d92bF652466723FD227F3517a1F182864",
+    "liquidityZapper": "0xe647e289303F75eDA0cBB43630eE07d4B0BB5EFd",
+    "susdaiAdapter": "0xa956810D020D73317AeBBca89Ff05B4adc757c62",
+    "susdaiReserve": "0x2219DC1c5Ef859A004B66AB55769F945ceF1ff44",
+    "strategyGroupRegistry": "0xeba2e7A24D6f9DD95f2219eb088CF56266A41B95",
+    "sampleSUSDaiBrand": "0xaA9EABCcF5030410eF8EAf4f0A9B53Ee454FE47A"
+  },
+  "uniswapV4": {
+    "poolManager": "0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408",
+    "positionManager": "0x4B2C77d209D3405F41a037Ec6c77F7F5b8e2ca80",
+    "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+  },
+  "across": {
+    "baseSpokePool": "0x82B564983aE7274c86695917BBf8C99ECb6F0F8F",
+    "arbitrumSpokePool": "0x7E63A5f1a8F0B4d0934B2f2327DAED3F6bb2ee75",
+    "maxBridgeFeeBps": 20,
+    "hardMaxBridgeFeeBps": 100
+  },
+  "remote": {
+    "chainId": 421614,
+    "network": "Arbitrum Sepolia",
+    "rpcUrl": "https://sepolia-rollup.arbitrum.io/rpc",
+    "usdc": "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d",
+    "hub": "0x9050dF2f672dEb3Cf4900349005ecd11b2497654",
+    "hubNote": "Carried over from the previous generation. The hub is a UUPS proxy holding the sUSDai position, so a home redeploy repoints its homeReceiver rather than replacing it; redeploying would strand that position.",
+    "homeReceiver": "0xa956810D020D73317AeBBca89Ff05B4adc757c62",
+    "mockUSDai": "0x8641F9F9892880da90717FD6898d21484f768E2E",
+    "mockSUSDai": "0xA9a921450e5D4c093F264f37F39D3fA039EC41d5",
+    "mockCurve": "0x4dD0D344207Bec56af07be05f3e0c31ab6942142"
+  },
+  "assetApprovals": [
+    {
+      "asset": "0x0ef8e07b6cd00Df5FDEAac4414293c904a97459d",
+      "approved": true,
+      "fee": 5000,
+      "assetPriceE18": "1000000000000000000",
+      "observationCardinality": 62,
+      "unitName": "Base Test Dollar",
+      "unitSymbol": "baseUSD",
+      "note": "The owner's approval carries everything economic about a market. Creating one is permissionless and carries nothing: a creator picks an approved asset and an approved reserve, and is recorded only for attribution."
+    }
+  ],
+  "market": {
+    "marketId": 1,
+    "asset": "0x0ef8e07b6cd00Df5FDEAac4414293c904a97459d",
+    "unit": "0x0025bA36f8D4e40F13F520CDEDC3Ec93a80328E3",
+    "unitSymbol": "baseUSD",
+    "treasury": "0x7F1B53baa493F2238A03D3C38F8467ae9d1B5064",
+    "feeVault": "0x782b69247b2a8A4197A50f6a40B410EF7e02348e",
+    "lpDistributor": "0x822E207CA74e851595dCA32c9EE7E4dCd0c017bf",
+    "reservePool": "0x8176AA7C41E5AF467Bb71b67dDDc5dC06b50D704",
+    "poolId": "0xd4ad7702617a63d5de3438d1c9726d4d2ae35e5842ce79a94f9e652005c72e25",
+    "fee": 5000,
+    "tickSpacing": 50,
+    "creator": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9",
+    "verified": false,
+    "lpPositionTokenId": 28076,
+    "liquidity": "1000000000000",
+    "seededUnit": "1000000",
+    "seededAsset": "1000000000000000000",
+    "stakedLiquidity": "0",
+    "stakedNote": "The seeded position is held by the deployer and is NOT staked. Until a full-range position is staked in the distributor it earns swap fees only, and a sweep has no one to pay."
+  },
+  "rewards": {
+    "rewardToken": "0x0025bA36f8D4e40F13F520CDEDC3Ec93a80328E3",
+    "rewardTokenNote": "The market's own unit. Float yield is swept as the unit and streamed to staked liquidity, and an LP may claim in any brand of the same reserve.",
+    "rewardsDuration": 604800,
+    "lpBps": 10000,
+    "protocolBps": 0,
+    "minSweep": "1000000",
+    "splitNote": "protocolBps is 0 on this testnet, so the whole float goes to liquidity providers. lpBps is always 10000 - protocolBps; there is no third leg."
+  },
+  "safety": {
+    "reserveLiabilityCap": "100000000000",
+    "susdaiLiabilityCap": "100000000000",
+    "adapterMinLocalBufferBps": 1000,
+    "adapterMaxBridgeAmount": "5000000000",
+    "adapterMaxBridgeFeeBps": 20,
+    "hubMaxBridgeAmount": "5000000000",
+    "hubMaxBridgeFeeBps": 20,
+    "hubMaxSwapSlippageBps": 50,
+    "authority": "deployer-owned public testnet deployment"
+  },
+  "strategyGroups": {
+    "registry": "0xeba2e7A24D6f9DD95f2219eb088CF56266A41B95",
+    "groupCount": 2,
+    "note": "The primary USDC-backed reserve and the Across-bridged sUSDai reserve. Both are approved on the factory, so a market may be opened against either.",
+    "approvedReservePools": [
+      {
+        "pool": "0x8176AA7C41E5AF467Bb71b67dDDc5dC06b50D704",
+        "note": "The factory's default reserve; always usable and deliberately not in the approval mapping."
+      },
+      {
+        "pool": "0x2219DC1c5Ef859A004B66AB55769F945ceF1ff44",
+        "approvedAt": "2026-09-16T00:05:50Z",
+        "transaction": "0xc36fc64f2c683f1e711cc51f59e846e025e6db7fb4942576cf4261515ac7c2e2",
+        "note": "Approved after the deploy: DeployBaseSepoliaPlatform registers the sUSDai group in the registry but never calls setApprovedReservePool, so the factory refused a market on it until this transaction."
+      }
+    ]
+  },
+  "libraries": {
+    "MarketDeployer": "0xbd7706Ffa5856232C3d64dE6269cc78c13229bdf",
+    "note": "Pinned with --libraries. Forge otherwise deploys a linked library out of band, which moves the deployer's nonce outside the plan it simulated."
+  },
+  "supersedes": {
+    "generation": "Buyback generation, deployed 2026-09-14, factory 0x97e259F455b198b9B12D36f4603788d9f6709a1E",
+    "note": "That stack's markets, brands (solUSD, MOON, BUKUB) and pools still exist on chain and remain readable, but nothing in this repository points at them. Its factory answers a Market struct with buybackEngine and lockbox where this generation has lpDistributor, so the two cannot share an ABI."
+  }
+}

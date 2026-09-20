@@ -1,0 +1,16 @@
+{
+  "domain": "https://stables-testnet.vercel.app",
+  "projectName": "stables-testnet",
+  "projectId": "prj_9sbV7ox6zDeIOgdsOWgjWZIHLLkl",
+  "team": "stables",
+  "sourceCommit": "5cc099b5",
+  "application": "web-stable",
+  "chainId": 46630,
+  "contractManifest": "deployments/asset-markets-testnet.json",
+  "deploymentUrl": "https://stables-testnet-odhtzoltb-stables.vercel.app",
+  "qaWalletEnabled": false,
+  "deploymentId": "dpl_2ARPpqPYUv87VunjiysRv55CtYK9",
+  "stale": true,
+  "staleSince": "2026-09-09",
+  "staleReason": "This Vercel deployment was built at commit 5cc099b5 with NEXT_PUBLIC_* addresses baked in at build time, and those addresses point at a retired AssetMarkets stack (factory 0xc9a182c074835751cc42B73D23c7dDff699D28e6). The contracts have been redeployed twice since, most recently on 2026-09-09 to the stack in asset-markets-testnet.json (factory 0x5F81D1E2D24BE4bB31E675C3EB7951Ca95796782), which splits brand registration from market listing. Every market read on the live site fails and the catalogue renders empty. Redeploy from current HEAD with the addresses in asset-markets-testnet.json before sharing this URL."
+}

@@ -1,0 +1,35 @@
+# Contracts CI. Deliberately small: build, format, and the offline test suite.
+#
+# The fork suite is not run here. It needs a live Robinhood Chain RPC, which rate-limits under
+# CI concurrency and would make this workflow flake for reasons that have nothing to do with the
+# change under test. Run it locally before a release:
+#   forge test -v --threads 1 --fork-url https://rpc.mainnet.chain.robinhood.com
+name: Tests
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: foundry-rs/foundry-toolchain@v1
+
+      # Formatting first: it is the cheapest failure and needs no compile.
+      - name: Check formatting
+        run: forge fmt --check
+
+      - name: Build
+        run: forge build --sizes
+
+      # via_ir makes a cold build expensive, so the offline suite reuses the artifacts above.
+      - name: Test (offline)
+        run: forge test --no-match-path 'test/*Fork*' -vv

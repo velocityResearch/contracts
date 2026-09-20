@@ -1,0 +1,165 @@
+{
+  "chainId": 4663,
+  "network": "Robinhood Chain mainnet",
+  "rpcUrl": "https://rpc.mainnet.chain.robinhood.com",
+  "explorer": "https://robinhoodchain.blockscout.com",
+  "deployedAt": "2026-09-16",
+  "generation": "gen-5: market-unit stack with the launchpad and the sUSDai cross-chain reserve group. Fresh deployment, not an upgrade of gen-4.",
+  "supersedes": "deployments/asset-markets-mainnet-v4.json",
+  "supersedesNote": "Gen-4 (factory 0xbE2fb491...a5E7) is still on chain with 11 markets and ~362.21 USDG of the deployer's own liquidity. It could NOT be upgraded in place: gen-5's AssetMarketFactory storage layout diverges from gen-4's in eight places -- positionManager inserted at slot 3 over live beacon data, lpBps and _marketsOfBrand removed, three mappings inserted before _markets, and the Market struct gained a reservePool field. Gen-4 is to be unwound by its owner (5 LP NFTs on the v4 PositionManager, then redeem 1:1) and abandoned, as gen-1 was.",
+  "deployer": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9",
+  "sourceBranch": "work/overnight-usdcai-launchpad",
+  "status": "INFRASTRUCTURE ONLY. marketCount() == 0, launchEnabled == false, no asset approved, no brand registered. Nothing irreversible has been created: registerPool binds a pool's skim recipient and pips one-shot, and no pool exists yet.",
+
+  "governance": {
+    "timelockController": "0x0f0595f1923928CB919B086E8A73A6B54889d22E",
+    "timelockMinDelaySeconds": 172800,
+    "guardian": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9",
+    "guardianNote": "The deployer EOA. May pause instantly; only the timelock may unpause, rotate the guardian or upgrade the guard. MOVE THIS TO A SECOND KEY -- it is currently the same key as the deployer and the protocol treasury.",
+    "protocolTreasury": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9",
+    "ownedByTimelockAtDeploy": [
+      "SharedReservePool (USDG group)",
+      "SharedReservePool (sUSDai group)",
+      "MorphoBlueYieldSource",
+      "SUSDaiYieldSource",
+      "ProtocolGuard",
+      "all four beacons from step 1",
+      "all four beacons from step 2"
+    ],
+    "ownershipHandoverPending": {
+      "reason": "The deploying key had to own these to make owner calls immediately after creating them: setRegistrar, setProtocolFeePips, setLaunchpad, and the launchpad's own one-shot wiring.",
+      "proxies": [
+        "AssetMarketFactory 0xeba2e7A24D6f9DD95f2219eb088CF56266A41B95",
+        "MarketRouter 0xeEb48DF599ca8d8C22e5f6a0da51955E42c7DD09",
+        "ProtocolFeeHook 0x92e45Ee89161ce9D803e236cF99C4d358488c0CC",
+        "LaunchFactory 0x9Df6BD77AB383Ae111AED18e693ea4F75871dE65",
+        "LaunchLocker 0x10487B2e5e288dA0445A85CdC3f3b963b1F74661"
+      ],
+      "batchOperationId": "0x4e46fe719552251fec9233e30700fedf61f778c7a8558a2a0fd6fff41679343d",
+      "scheduledAt": "2026-09-16",
+      "executableAtUnix": 1789753944,
+      "executableAtUtc": "2026-09-18T17:52:24Z",
+      "state": "pending; all five nominated (pendingOwner == timelock), ownership has NOT moved yet",
+      "execute": "forge script script/HandOverMainnetOwnership.s.sol:HandOverMainnetOwnership --sig 'executeHandover()' --rpc-url robinhood --broadcast --slow",
+      "note": "One batch, so either all five move or none do. Until executed the EOA is still owner; if never executed the nominations expire into nothing."
+    }
+  },
+
+  "core": {
+    "sharedReservePool": "0x9d4bc59356F60F6Ee86179a7E8f2A7E94A814D5f",
+    "sharedReservePoolImplementation": "0xdc1c6421bbf0da364a373d0c0a39d428d78f96af",
+    "morphoBlueYieldSource": "0x84F831357B43030FC1D840f54447cA94259ECD1E",
+    "morphoBlueYieldSourceImplementation": "0xcf9615eac4b57e3e9f2ed439bc4ec92e4e548338",
+    "protocolGuard": "0x512b12bbd112a31314b0567bd70c6f38a62ad509",
+    "protocolFeeHook": "0x92e45Ee89161ce9D803e236cF99C4d358488c0CC",
+    "protocolFeeHookImplementation": "0x9053b5b4de4b479034515210b6b7c48a8bd4cc9b",
+    "protocolFeeHookNote": "Mined address: low 14 bits are 0xcc = beforeSwap | afterSwap | both return-deltas. Permanent; an upgrade must never change getHookPermissions.",
+    "assetMarketFactory": "0xeba2e7A24D6f9DD95f2219eb088CF56266A41B95",
+    "assetMarketFactoryImplementation": "0xa938855467cf5b84db9596776090e81f7a9403f7",
+    "marketRouter": "0xeEb48DF599ca8d8C22e5f6a0da51955E42c7DD09",
+    "marketRouterImplementation": "0xa8ed925d12a2adfb4fee9d0e38043ad5e95c9514",
+    "marketDeployerLibrary": "0xbd7706ffa5856232c3d64de6269cc78c13229bdf"
+  },
+
+  "launchpad": {
+    "feeEscrow": "0x794beb98fec0d7b2738f885d878d50b98d8a369c",
+    "factory": "0x9Df6BD77AB383Ae111AED18e693ea4F75871dE65",
+    "factoryImplementation": "0x375ad04788b1cef7368b5add18a76645e7e97917",
+    "locker": "0x10487B2e5e288dA0445A85CdC3f3b963b1F74661",
+    "launchDeployer": "0x298e3ef91168d268abf6d76e245eef28cc2308d9",
+    "graduation": "0x0f728F61B436E12c927D8e30A13CdC90357dc5CF",
+    "router": "0x9bD4C3c70612FA0cbDFE57b322DE934C1b3239be",
+    "launchConfigId": 0,
+    "launchEnabled": false,
+    "launchEnabledNote": "DELIBERATELY DISABLED. No quote brand is approved, so nothing is publicly launchable. Enabling requires: register a brand on a reserve, setPairTokenEconomics, setPairTokenApproved, then setLaunchEnabled(true).",
+    "registeredOnMarketFactory": true,
+    "registeredOnMarketFactoryNote": "AssetMarketFactory.launchpad() == the graduation module. Without this every graduation reverts OnlyLaunchpad."
+  },
+
+  "susdaiGroup": {
+    "reserve": "0x74a104d8984d43ce49fb0c5abcda1d827b39e61e",
+    "reserveImplementation": "0x3bd3d27446830575f67e84071921959e869060ad",
+    "adapter": "0x19bB1fB3303036f9f12C388b2405184058FA29B6",
+    "adapterImplementation": "0xb0611f42aa9379403131186ff8806f057ba143ed",
+    "hub": "0x740ddd200D9Ee605F25239Ba701bdd89161034b1",
+    "hubChainId": 42161,
+    "hubOwner": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9",
+    "hubOwnerNote": "MOVE TO A MULTISIG. The Robinhood timelock cannot reach Arbitrum, so this is the one authority with no delay behind it.",
+    "keeper": "0x467Ca912943e85A0B0e72B7E1190129762481EEC",
+    "homeReceiverWired": true,
+    "approvedOnMarketFactory": true,
+    "operational": false,
+    "operationalNote": "NOT OPERATIONAL. liabilityCap == 0 and redemptionFeeBps == 0, so nothing can mint from this group. Both are timelock-owned and need scheduled calls (48h each). maxBridgeAmount on the adapter also needs setting. Do this only after one controlled Across round trip has been proven.",
+    "pendingTimelockCalls": [
+      "reserve.setLiabilityCap(<cap>)",
+      "reserve.setRedemptionFeeBps(14)",
+      "adapter.setMaxBridgeAmount(5000000000)"
+    ]
+  },
+
+  "integrations": {
+    "usdg": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+    "morphoBlue": "0x9D53d5E3bd5E8d4Cbfa6DB1ca238AEA02E651010",
+    "morphoMarketId": "0xc845da65a020ddca5f132efa8fea79676d8edfdea504226a4c01e7a9e34cddd6",
+    "morphoUtilizationAtDeployBps": 9006,
+    "uniswapV4PoolManager": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+    "uniswapV4PositionManager": "0x58daec3116aae6D93017bAAea7749052E8a04fA7",
+    "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+    "referenceEquity": "0x4a0E65A3EcceC6dBe60AE065F2e7bb85Fae35eEa",
+    "arbitrumUsdc": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+    "susdai": "0x0B2b2B2076d95dda7817e785989fE353fe955ef9",
+    "curveSusdaiUsdc": "0xa7CF5543a27BaDC3a74d51EA0A02E84799140E4E",
+    "arbitrumSpokePool": "0xe35e9842fceaCA96570B734083f4a58e8F7C5f2A",
+    "robinhoodSpokePool": "0xD29C85F15DF544bA632C9E25829fd29d767d7978",
+    "integrationsNote": "All asserted against the live chains by PreflightMainnet.s.sol immediately before deployment: PASSED."
+  },
+
+  "parameters": {
+    "protocolBpsOnYield": 0,
+    "paidToLpsBps": 10000,
+    "protocolFeePipsOnTrading": 5000,
+    "rewardsDurationSeconds": 604800,
+    "minObservationCardinality": 62,
+    "equityVerification": "ACTIVE",
+    "susdaiHubMaxBridgeAmount": 5000000000,
+    "susdaiLiabilityCapRequested": 100000000000,
+    "parametersNote": "Matches gen-4's shipped economics. The buyback is gone: float yield now streams entirely to LPs via BrandFeeVault -> LpRewardDistributor."
+  },
+
+  "cost": {
+    "currency": "ETH",
+    "robinhoodTotal": 0.00263,
+    "arbitrumTotal": 0.000055,
+    "measuredBy": "Deployer balance delta. RH 0.031540434927225 -> 0.028912055149313 across four broadcasts plus two owner calls; ARB 0.019 -> 0.018944771461472.",
+    "breakdown": {
+      "step1_reserve": 0.00068,
+      "step2_marketsAndLaunchpad": 0.00165,
+      "susdaiGroup": 0.00030,
+      "ownershipHandoverSchedule": 0.000047,
+      "arbitrumHub": 0.000055
+    }
+  },
+
+  "verification": {
+    "preflight": "PASSED -- every hardcoded mainnet constant matches the live chain",
+    "postDeploy": "VerifyAssetMarketsMainnet.s.sol PASSED against the live addresses",
+    "forkTests": "23/23 passed against a fork of this chain: LaunchJourneyV4Fork 9, LaunchRouterV4Fork 7, MainnetLaunchFork 7",
+    "offlineTests": "552 passed, 0 failed, 2 skipped",
+    "rehearsal": "script/rehearse-mainnet.sh ran the whole sequence including the launchpad against an anvil fork of 4663 before any real broadcast",
+    "hookBits": "0xcc confirmed on the deployed proxy address",
+    "explorerVerification": "NOT ATTEMPTED. The Blockscout instance sits behind Cloudflare and nothing has been verified through it."
+  },
+
+  "openItems": [
+    "Execute the ownership handover on or after 2026-09-18T17:52:24Z. Until then five proxies are owned by a hot key.",
+    "Move the guardian off the deployer key.",
+    "Move the Arbitrum hub owner to a multisig.",
+    "sUSDai group is not operational: liabilityCap, redemptionFeeBps and adapter maxBridgeAmount all need timelock-scheduled calls.",
+    "Prove one controlled Across round trip with the keeper service (DRY_RUN=true first) before any float accumulates.",
+    "Keeper 0x467Ca912...1EEC holds 0.01 ETH on Robinhood and 0 on Arbitrum. It needs Arbitrum gas to call buyShares/sellShares/bridgeHome.",
+    "Unwind gen-4: 5 LP NFTs on the v4 PositionManager, then redeem the four brands 1:1.",
+    "Launching is disabled. Approve a quote brand and setLaunchEnabled(true) only after testing.",
+    "Regulatory counsel on float interest funding LP rewards has not been obtained.",
+    "Morpho USDG/USDe utilization was 90.06% at deploy. _recallIfNeeded reverts at 100% and there is no idle-buffer policy."
+  ]
+}

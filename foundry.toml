@@ -1,0 +1,64 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.26"
+optimizer = true
+optimizer_runs = 200
+via_ir = true
+ffi = false
+fs_permissions = []
+
+# Official precompiled Uniswap V3 artifacts for the isolated testnet deploy script.
+# The default profile retains no filesystem permissions.
+[profile.asset_markets_testnet]
+fs_permissions = [{ access = "read", path = "/private/tmp/asset-markets-deps/node_modules" }]
+
+[profile.default.fuzz]
+runs = 256
+max_test_rejects = 65536
+
+[rpc_endpoints]
+mainnet = "${ETH_RPC_URL}"
+base = "${BASE_RPC_URL}"
+arbitrum = "${ARBITRUM_RPC_URL}"
+robinhood = "https://rpc.mainnet.chain.robinhood.com"
+robinhood_fork = "http://127.0.0.1:8545"
+
+[fmt]
+line_length = 100
+tab_width = 4
+quote_style = "double"
+bracket_spacing = false
+
+# ─── Robinhood Chain mainnet ─────────────────────────────────────────────
+#
+# No contract in this repo exceeds the 24,576-byte EIP-170 limit, so mainnet deploys need no
+# special flags. `AssetMarketFactory` used to: it embedded `MarketYieldSplitter`'s creation
+# code and compiled to ~26.7KB, which forced `--code-size-limit 32768` on every `forge script`
+# run that deployed it. Commit 6a86098 moved that creation code behind `SplitterDeployer`, and
+# the factory is now 8,764 bytes. Re-measured 2026-09-09.
+#
+# Check before assuming, since the figure drifts as the splitter grows:
+#   forge build --sizes --offline | grep -E "AssetMarketFactory|SplitterDeployer"
+#
+# If a contract ever goes over again, note that `code_size_limit` here does NOT rescue it:
+# forge runs a separate size check between simulation and broadcast that reads only the CLI
+# flag, so an oversized deploy simulates cleanly, prints its addresses, and then refuses to
+# broadcast. Tested against a mainnet fork on 2026-09-09, while the factory was still oversized.
+
+# NO [etherscan] SECTION, AND THIS IS LOAD-BEARING. It used to carry a Blockscout entry
+# `robinhood = { key = "${ROBINHOOD_EXPLORER_API_KEY}", chain = 4663, url = ... }`.
+#
+# foundry 1.5.1-stable rejects an `[etherscan]` entry whose `chain` is not in its built-in
+# chain registry, and it does so while LOADING THE CONFIG — so the failure is not confined to
+# `--verify`. Every `forge script` against chain 4663 died with `Error: Chain 4663 not
+# supported` before running a line, whatever `--rpc-url`, `--chain` or `--skip-simulation` was
+# passed. Removing this block is what makes a mainnet script runnable at all; verified by
+# simulating `UpgradeAggregatorSurfaceMainnet` immediately before and after, on 2026-09-19.
+#
+# Nothing is lost. The entry's own note said verification through that instance was UNTESTED,
+# and no contract on 4663 has ever been verified, so this section only ever cost us the
+# ability to broadcast. If explorer verification is wanted later, pass it per invocation
+# (`--verifier blockscout --verifier-url https://robinhoodchain.blockscout.com/api`) rather
+# than restoring a config key that breaks config load for every other command.

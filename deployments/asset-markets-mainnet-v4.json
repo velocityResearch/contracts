@@ -1,0 +1,222 @@
+{
+  "chainId": 4663,
+  "network": "Robinhood Chain mainnet",
+  "rpcUrl": "https://rpc.mainnet.chain.robinhood.com",
+  "explorer": "https://robinhoodchain.blockscout.com",
+  "deployedAt": "2026-09-10",
+  "generation": "v4 upgradeable: ProtocolGuard + 5 UpgradeableBeacons + UUPS proxies; BrandFeeVault replaces MarketYieldSplitter; one market per brand",
+  "supersedes": "deployments/asset-markets-mainnet.json",
+  "supersedesNote": "The gen-1 stack at those addresses is still on chain but was never used: 0 markets, 0 USDG in its reserve. It is abandoned, not migrated. Nothing was stranded by replacing it. Its timelock delay is 0; this generation's is 172800.",
+  "deployer": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9",
+  "sourceCommit": "9beb04a76209269527bc80e1380304c3efc1b9b4",
+  "sourceCommitNote": "Superseded. At deploy time the tree carried 48 uncommitted changes including all of src/upgrade/ (then untracked), and another agent rewrote ProtocolStack.sol, ProtocolFeeHook.sol, SharedReservePool.sol, AssetLockbox.sol and DeploySharedReservePool.s.sol at 06:40:13 local, between the rehearsal and this broadcast - so this commit was NOT the authority when the note was written. Everything was subsequently committed as 53f80f5 (Deploy the upgradeable stack and record the mainnet run) and the sourceSha256 values below were re-verified against that commit byte for byte, as was the deployed runtime bytecode of every implementation. 53f80f5 is now the authority; sourceSha256 remains the cross-check.",
+  "architecture": "Two-tier upgradeability. Contracts there is exactly one of (reserve pool, factory, router, hook, yield adapter, guard) are ERC1967/UUPS proxies, upgraded one at a time. Contracts there are many of, one set per market (brand token, treasury, fee vault, buyback engine, lockbox), sit behind UpgradeableBeacons so one upgradeTo moves every market at once.",
+  "architectureCorrection": "An earlier revision of the field above ended: the TimelockController owns every proxy and every beacon. THAT IS FALSE, and it was written from the deploy script's own log line without checking the chain. Verified via owner() on chain 4663: the timelock owns the guard, the reserve pool, the yield adapter and all ten beacons - but the ProtocolFeeHook, AssetMarketFactory and MarketRouter proxies are owned outright by the deployer EOA, which can upgradeToAndCall all three instantly, with no timelock and no delay. Simulated eth_call from that EOA returns 0x on all three; from any other address it reverts OwnableUnauthorizedAccount. This is CRITICAL-1 in ASSET_MARKETS_AUDIT_UPGRADEABLE.md. Two independent reasons no check caught it: DeployAssetMarkets.s.sol:462 inspects only the RESERVE POOL's owner (which genuinely is the timelock, so its warning correctly stays silent), and even pointed at the right contracts its test is owner.code.length == 0, which is false for a 7702-delegated EOA (23 bytes).",
+  "audit": "ASSET_MARKETS_AUDIT_UPGRADEABLE.md, 2026-09-10. One CRITICAL, two HIGH, four MEDIUM, thirteen LOW. The CRITICAL is the ownership defect above and is the only finding exploitable with no market existing. marketCount() == 0 and the pool holds 0 USDG, so nothing is exposed yet - that is the window to fix it in. Deployed implementation bytecode was rebuilt locally and matches the chain exactly (factory 16169, router 15847, hook 11728, engine 11533, vault 8160, MarketDeployer 2593, lockbox 1137), so the audit covers what is live rather than what might be.",
+  "governance": {
+    "timelockController": "0x5f43E1e732c7aBdbbC73F9d1367320D9040C872a",
+    "timelockMinDelaySeconds": 172800,
+    "timelockNote": "48h. It owns the guard, the reserve pool, the yield adapter and all ten beacons - but NOT the hook, factory or router proxies, which the deployer EOA owns outright and can upgrade with zero delay (see architectureCorrection and CRITICAL-1 in the audit). Where the timelock does apply it is load-bearing: it is the only thing standing between a leaked key and an instant rewrite of every brand token, vault, engine and lockbox implementation. Raising the delay later is cheap; lowering it always costs the delay then in force.",
+    "timelockRoles": "Verified on chain. The deployer EOA holds PROPOSER_ROLE, EXECUTOR_ROLE and CANCELLER_ROLE. It does NOT hold DEFAULT_ADMIN_ROLE - the timelock holds that itself (constructed with admin = address(0)), and OZ 5.7.0 dropped the separate TIMELOCK_ADMIN_ROLE in favour of DEFAULT_ADMIN_ROLE, which getRoleAdmin confirms administers all three. So roles are changeable, but only by the timelock acting on a proposer's schedule - and this EOA is the sole proposer, which makes it the only party able to grant itself admin and means no second party exists who could revoke it. It carries an EIP-7702 delegation (cast code returns 0xef010063c0c19a282a1b52b07dd5a65b58948a07dae32b) to an unidentified 11185-byte contract that answers VERSION() 1.3.0 but reverts every storage-reading selector. Even if that delegate enforces m-of-n on outgoing calls, the EOA key can still sign a plain transaction and revoke the delegation at will, so control reduces to one key regardless.",
+    "protocolGuard": "0x88eeA21D246DF8aa4Ca071532cB06d4f66D45f65",
+    "protocolGuardImplementation": "0xa2097833f1aecd47da248111c31ab4459d7b09d2",
+    "guardian": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9",
+    "guardianNote": "The deployer EOA. The API is pause()/pauseTarget(address)/unpause()/unpauseTarget(address)/setGuardian(address) - there is no halt(), resume() or permanent-halt flag. The asymmetry is real and verified by probe: the guardian may pause instantly with no timelock, but ONLY the timelock owner may unpause, change the guardian or upgrade the guard. So it cannot trap funds - SharedReservePool._redeem deliberately carries no whenNotPaused and PooledBrandToken does not inherit GuardedUpgradeable at all, so holders can always exit 1:1. It is not limited to pausing in the sense the earlier note implied: the same EOA also owns the hook, factory and router proxies outright and is the protocol treasury. Move the guardian to a second key.",
+    "factoryOwner": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9",
+    "protocolTreasury": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9"
+  },
+  "liveBeacons": {
+    "_warning": "READ THIS BEFORE UPGRADING ANYTHING. Step 2 re-deployed all five beacons instead of reusing step 1's, so the set that is actually wired in is SPLIT across the two steps: brandToken and treasury come from step 1, vault/engine/lockbox come from step 2. Five beacons and five implementations were deployed and are referenced by nothing - see orphanedDeployments. Upgrading an orphaned beacon spends gas and changes no market while appearing to succeed. These five addresses were read back off chain via pool.brandTokenBeacon(), pool.treasuryBeacon() and factory.beacons(), not transcribed from script output.",
+    "brandToken": "0xc7433cD04Ce4B5b326602EFeD3bBA68d29aC4Bde",
+    "brandTokenImplementation": "0xf88f3ff43ac82ad1101823bdfcc891efd8a42f89",
+    "brandTokenDeployedBy": "step 1",
+    "treasury": "0x8AB0789D62a06546bfF51Be28ecaC696eb817897",
+    "treasuryImplementation": "0x61421a52027dd58988728ff1a0198faf31392e7b",
+    "treasuryDeployedBy": "step 1",
+    "vault": "0x4c990ba2004afbC1010e0506B913CF5210B3710A",
+    "vaultImplementation": "0x6a03c4d80784859313f51f7dd328e77646507eeb",
+    "vaultDeployedBy": "step 2",
+    "engine": "0x23610E0E72d3CAA3D0f908376fdb6e398F743F01",
+    "engineImplementation": "0x7bb7418611d7a2525f9a1a806ec9b4b61eceffba",
+    "engineDeployedBy": "step 2",
+    "lockbox": "0x44FA04B6572c4CC644c3bCFaCB7c7E7e15a1b994",
+    "lockboxImplementation": "0xfbea6e959caf626de91c25635467e52ea759dc46",
+    "lockboxDeployedBy": "step 2"
+  },
+  "core": {
+    "sharedReservePool": "0x076e361b535B236471BEA7f444D5E70971172338",
+    "sharedReservePoolImplementation": "0x41996e592064501b63ecf60d9aa36d52a96e773f",
+    "morphoBlueYieldSource": "0x9D3537Fe30796174Aa89950DdA42B37C05fB65f8",
+    "morphoBlueYieldSourceImplementation": "0xbbbe0c698ea2f81c7433680df7a24e9a262854d5",
+    "protocolFeeHook": "0x082cfdCe92dD005bcC6343a988A00E728aefC0CC",
+    "protocolFeeHookImplementation": "0x05e2C457bf002652998231706D6719310FdFc4cA",
+    "protocolFeeHookSalt": 30198,
+    "protocolFeeHookNote": "A MINED address: v4 reads a hook's permissions from the low 14 bits of the hook's own address, and 0x...C0CC carries 0xcc = beforeSwap | afterSwap | both return-deltas. The proxy address is permanent; upgrading the implementation does not move it, which is what keeps every existing pool valid.",
+    "assetMarketFactory": "0xbE2fb491C37F19E723F86A8cAcA625B4Ba75a5E7",
+    "assetMarketFactoryImplementation": "0x7f19aec138c410ae33c7ffd67d578cd965c0be53",
+    "marketRouter": "0xcCDe2EcDE7072Efe61822551152663F204CF73ce",
+    "marketRouterImplementation": "0x7e4B0281e7d2978aEA428c15Fc05843e3f3F06F4",
+    "marketDeployerLibrary": "0xBf692FB966c90DF42A0c584e54e1778B0cA319c7"
+  },
+  "integrations": {
+    "usdg": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+    "morphoBlue": "0x9D53d5E3bd5E8d4Cbfa6DB1ca238AEA02E651010",
+    "morphoMarketId": "0xc845da65a020ddca5f132efa8fea79676d8edfdea504226a4c01e7a9e34cddd6",
+    "uniswapV4PoolManager": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+    "uniswapV4PositionManager": "0x58daec3116aae6D93017bAAea7749052E8a04fA7",
+    "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+    "uniswapV3Factory": "0x1f7d7550B1b028f7571E69A784071F0205FD2EfA",
+    "positionManager": "0x73991a25C818Bf1f1128dEAaB1492D45638DE0D3",
+    "swapRouter02": "0xCaf681a66D020601342297493863E78C959E5cb2",
+    "referenceEquity": "0x4a0E65A3EcceC6dBe60AE065F2e7bb85Fae35eEa",
+    "integrationsNote": "All asserted against the live chain by script/PreflightMainnet.s.sol immediately before this deployment: PASSED. Morpho USDG/USDe utilization was 90.08% at that moment."
+  },
+  "parameters": {
+    "protocolBpsOnYield": 0,
+    "lpBpsOfYield": 5000,
+    "buysBackAndLocksBps": 5000,
+    "protocolFeePipsOnTrading": 5000,
+    "tradingSkimRecipient": "protocolTreasury",
+    "tradingSkimNote": "The trading skim goes to the PROTOCOL TREASURY, not to the market's BrandFeeVault. This is deliberate: the vault's only revenue is float yield. Consequence worth stating plainly - trading fees do NOT fund the buyback, only float yield does, and BuybackEngine.execute pays the skim like any other trader. Bound one-shot per pool at market creation, so it is immutable for the life of each pool while factory.protocolTreasury remains mutable via setProtocolParams.",
+    "presetLpFeeTier": 5000,
+    "buybackMinNotional": 1000000,
+    "buybackMinNotionalWholeUnits": 1,
+    "buybackMinIntervalSeconds": 21600,
+    "buybackTwapWindowSeconds": 1800,
+    "buybackMaxSqrtDeviationBps": 200,
+    "equityVerification": "ACTIVE",
+    "buybackMinNotionalNote": "Lowered from 100000000 ($100) to 1000000 ($1) on 2026-09-11 in tx 0x74d03798b15e7712e1969af37835d5f45d7e6db0e5a2a4ac7839fd000bd72788 (block 60502633), so the buyback can actually be exercised at current float. FUTURE MARKETS ONLY: minNotional is stamped into each BuybackEngine at initialize and has no setter, so markets 1-9 keep the $100 floor permanently. minInterval, twapWindow and maxDeviationBps were deliberately left at 21600/1800/200 - the shorter window and wider band used in the fork rehearsal would have weakened the price guard on every market users create. Rehearsed in test/markets/BuybackTestMarketFork.t.sol."
+  },
+  "cost": {
+    "currency": "ETH",
+    "step1": 0.002294,
+    "step2": 0.002933,
+    "total": 0.005227,
+    "measuredBy": "Deployer balance delta, not an estimate: 0.033432896583831 -> 0.031139098515111 -> 0.028205979394657 ETH.",
+    "transactions": {
+      "step1": 17,
+      "step2": 19,
+      "total": 36
+    },
+    "nonceRange": [
+      110,
+      146
+    ],
+    "nonceNote": "110 -> 127 (step 1, 17 txs) -> 146 (step 2, 19 txs: 17 CREATEs plus setRegistrar and setProtocolFeePips). The contiguous nonce run is the evidence that no stray or duplicated transaction was sent; two earlier step-2 attempts were killed mid-run and sent nothing.",
+    "estimatedGasStep2": 25723741,
+    "gasPriceAtDeploy": "0.148-0.304 gwei"
+  },
+  "orphanedDeployments": {
+    "_note": "Deployed and paid for, referenced by nothing. Step 1 deployed all five beacons but only brandToken and treasury are consumed (by the reserve pool); step 2 then deployed a second set of all five and the factory consumes vault/engine/lockbox from that set. Harmless on chain - each is owned by the timelock and points at a valid implementation - but they are a trap for anyone upgrading by address, and roughly ten deployments of wasted gas. Fixing it means DeployAssetMarkets.s.sol taking step 1's beacon addresses as inputs rather than calling ProtocolStack.deployBeacons a second time.",
+    "fromStep1Unused": {
+      "vaultBeacon": "0x65e04C384126849B017ca2E43B72b06C766B340d",
+      "vaultImplementation": "0x699cfe10039f4a120acf2dbdce945dab933ef5da",
+      "engineBeacon": "0x1aFE9021cCA95F78CBB7D573AF093DaD0abdE5A6",
+      "engineImplementation": "0x14ba252f74cd6d781104eb6a065f2c40715938bd",
+      "lockboxBeacon": "0xDEAE49a4C68Cf925c803382A087e0b4606f0B8D2",
+      "lockboxImplementation": "0xdeda71a70af0fdf0d11132470b1fb7325463ca7a"
+    },
+    "fromStep2Unused": {
+      "brandTokenBeacon": "0x8e3135321a4ba61d9280fffaf2dd7553e1099c29",
+      "brandTokenImplementation": "0xce60e903890640a4b31071396ce44e74f35d4077",
+      "treasuryBeacon": "0x5ec9be3133ebd651af3bec8ad283b9930561ddb0",
+      "treasuryImplementation": "0x0049256a42700241447b45bcae1ff60e8d3205d4"
+    }
+  },
+  "marketsNote": "Stale figures removed. An earlier revision of this file said \"markets\": [] and \"None. This deployment is infrastructure only\", which was true on 2026-09-10 and false every day after: markets were opened on this generation, liquidity was seeded into five Uniswap v4 positions, and both facts sat here uncorrected. Live counts, reserve balances and per-position liquidity for gen-4 now live in deployments/mainnet-state.json under the \"gen4\" key, which is regenerated from chain 4663 rather than typed. Read that file, not this one, for anything that moves.",
+  "unwound": "UNWOUND 2026-09-19 by script/UnwindGen4Liquidity.s.sol. All five LP positions were burned to zero liquidity and the deployer's brand balances were redeemed 1:1 back to USDG. What remains in the reserve backs brand tokens held by third parties and stays redeemable 1:1, because SharedReservePool._redeem carries no whenNotPaused by design. Confirm against mainnet-state.json.gen4 rather than trusting this line.",
+  "lpPositions": {
+    "positionManager": "0x58daec3116aae6D93017bAAea7749052E8a04fA7",
+    "tokenIds": [2356098, 2357056, 2357544, 2428284, 2546931],
+    "tokenIdsNote": "The deployer's five gen-4 LP NFTs, found by walking every PositionManager Transfer to 0xeA6A...12A9 across the gen-4 life and recorded in script/UnwindGen4Liquidity.s.sol. They are listed here because log-walking is not something an eth_call can redo, so the generator reads the ids from this manifest and reports only their live owner and liquidity. Three markets, five positions: market 2 was seeded three times.",
+    "marketByTokenId": {
+      "2356098": 1,
+      "2357056": 2,
+      "2357544": 3,
+      "2428284": 2,
+      "2546931": 2
+    }
+  },
+  "verification": {
+    "preflightMainnet": "PASSED against live 4663 before deploying",
+    "step1WiringAssertions": "PASSED",
+    "step2WiringAssertions": "PASSED",
+    "step2VenueAssertions": "PASSED",
+    "verifyAssetMarketsMainnet": "PASSED after deploying, with EXPECT_MIN_DELAY=172800",
+    "factoryRuntimeBytes": 130,
+    "factoryRuntimeNote": "130 bytes because it is the proxy. The implementation is 16,169 bytes, inside the 24,576-byte EIP-170 limit with 8,407 to spare.",
+    "hookPermissionBits": "0xcc"
+  },
+  "openBlockers": [
+    "TWO FORK TESTS FAIL and were never diagnosed. In test/markets/MainnetLaunchFork.t.sol: test_fork_funded_fullFlowThroughBuybackAndLockbox reverts with an arithmetic underflow (panic 0x11) partway through the buyback flow, and test_fork_opensFourMarketsWithFourSeparateBrands fails an address assertion (0x0F33 != 0x1f8FC9dBEbe2d5471b686313fd2546f2d3D4f9Cc). Both were measured against pre-06:40 bytecode. The underflow is in the buyback path, which is the product's core claim, and no market has been opened, so it has not been exercised with real funds. Resolve before opening the first market.",
+    "THE BUYBACK CANNOT FIRE AT CURRENT FUNDING. The deployer holds 304,847,650 base units = $304.85 USDG. test_fork_realWallet_floatIsFarTooSmallToEverBuyBack passes and measures it directly: $229.34 of float earns $10.97 of Morpho yield across four markets in a year, against a minNotional of $100 per round. Since only float yield funds the buyback now, not trading fees, roughly $2,000+ of float is needed for a single $100 round per year. Fund the wallet or lower minNotional; both are decisions, not code changes.",
+    "DEPLOYED FROM A DIRTY TREE THAT ANOTHER AGENT WAS CONCURRENTLY EDITING. 48 uncommitted changes, src/upgrade/ untracked, and five core files rewritten at 06:40:13 between the rehearsal and the broadcast. The bytecode deployed is therefore reproducible only from sourceSha256 below, not from any commit. Committing this tree is the cheapest way to make the deployment auditable.",
+    "Morpho USDG/USDe utilization was 90.08% at preflight. SharedReservePool._recallIfNeeded pulls from Morpho on demand and reverts at 100% utilization. There is no idle-buffer policy.",
+    "Regulatory counsel on the buyback shape has not been obtained. ASSET_MARKETS.md section 10 flags 'float interest funds a buyback of a token' as closer to the line than a plain 1:1 peg.",
+    "Contract verification on the block explorer is still untested. The Blockscout instance sits behind Cloudflare and nothing has been verified through it.",
+    "docs/ASSET_MARKETS_MAINNET.md describes the PREVIOUS generation throughout: it documents SplitterDeployer and a two-step registerBrand/openMarket flow, gives a gas table for six transactions rather than thirty-six, and its 'Raising the timelock delay' section targets gen-1's timelock at 0x71300c2D29e5d218f17c16F377D3e8C1469405db. It needs a rewrite before anyone follows it."
+  ],
+  "operationalNotes": [
+    "forge HANGS on this deployment unless Sourcify is short-circuited. Step 2 blocked indefinitely at ~1% CPU, twice, in foundry_evm_traces::identifier::external::SourcifyFetcher::fetch: the trace contains PoolManager, PositionManager and Permit2, which are not in local artifacts, so forge tries to label them via sourcify.dev and that request never returns. --disable-labels does NOT stop the fetcher. What works is failing the request fast while leaving the RPC alone: HTTPS_PROXY=http://127.0.0.1:9 HTTP_PROXY=http://127.0.0.1:9 NO_PROXY=rpc.mainnet.chain.robinhood.com. Step 1, PreflightMainnet and VerifyAssetMarketsMainnet do not need it. Worth putting in the runbook, because it looks exactly like a chain problem and is not.",
+    "A standalone `forge script` simulation of step 2 (no --broadcast) is redundant and also hangs the same way. --broadcast simulates the whole script first, including the post-deploy wiring and venue assertions, and sends nothing if any of it fails.",
+    "script/rehearse-mainnet.sh was repaired for this architecture. It parsed broadcast/run-latest.json by contractName, but every proxy now reports as ERC1967Proxy, so its dict collapsed all of them onto whichever deployed last. It now reads the deploy scripts' own labelled output.",
+    "script/VerifyAssetMarketsMainnet.s.sol asserted feeRecipientOf(poolId) == market.feeVault, which was the previous generation's design and reverts on every market now that the skim goes to the protocol treasury. It now asserts the recipient is non-zero and prints both it and the current treasury, because registerPool binds one-shot at creation while setProtocolParams can move the treasury later - a strict equality would false-alarm on a healthy deployment.",
+    "Fork rehearsal writes to broadcast/<script>/4663/ exactly like a real run and those files are not gitignored. The rehearsal redirects FOUNDRY_BROADCAST to a temp dir for this reason. The records under broadcast/ now are from the REAL deployment."
+  ],
+  "sourceSha256": {
+    "src/pool/SharedReservePool.sol": "5170d3a5f6ad0a88470f26bc1c72d0b50f30df5b11e51b4fde3bdf1c8b9ab2f5",
+    "src/pool/PooledBrandToken.sol": "97baea0a398267637a6a78dac981850b646948206b9985f12361815833769b30",
+    "src/pool/PoolBrandTreasury.sol": "bcf443f9fd09da54c944ca8de0ef8df60674e40a62caeae4a21a84b35e8a7627",
+    "src/yield/MorphoBlueYieldSource.sol": "9f512172c86b01d04f9929149aff9a886484ccab96a6d5fed5c17430625dead8",
+    "src/markets/AssetMarketFactory.sol": "a02eeadb59a7cf4c9c0396922718da08f10a731a2a8fc7451c980ebb0f79ae80",
+    "src/markets/BrandFeeVault.sol": "99a6fec8dc2d8bc815ffebbaa67ccad263890f8a5c62e6be918fded6f91071ea",
+    "src/markets/BuybackEngine.sol": "c2c6b1c86bf8b290cd8fc7c913b825bb829e863b02445e199a8e239eb4643a58",
+    "src/markets/AssetLockbox.sol": "c7186319d5f67743a2eab8df9d09bf654a251771826cb23a7402b1e54c5183f7",
+    "src/markets/MarketRouter.sol": "845da09062841290cc4f37f32d9c9ad5e4e821d935b8052634cec3f01ec91eb5",
+    "src/markets/ProtocolFeeHook.sol": "c05dd095b9b05c9063ee11423261da000d9fc23d92e096aefa94cbfbee6d2e4a",
+    "src/markets/MarketDeployer.sol": "2d719470632e43e9e6fb64ad63cf73b0df58364655f232158779145db8682f2a",
+    "src/upgrade/ProtocolGuard.sol": "a855d152dfc919e69fd7e56a1aff7c0dd5135e7407eb8499cacab532d834a50c",
+    "src/upgrade/ProtocolStack.sol": "cc1d6b3c6629a79d24200de3f6705afb392185e85f5d4ac8a79f1f90619ad745",
+    "src/upgrade/GuardedUpgradeable.sol": "cc3ae1355f1aeeecd37d7328e80a4cea7ea6b04c3a3fa15bb5c18a4a62b48d1b",
+    "src/upgrade/ReentrancyGuardSlot.sol": "f2da356878dfe3987eab03540cfe925b82e6575a647ebe810a1c9d9d6cfd1f1d",
+    "src/upgrade/IProtocolGuard.sol": "931a8da0c867cd9b5be632709fd2ac0cfb25ee333df263c876206ce922e3ec51",
+    "script/MainnetAddresses.sol": "f87cfd7f500be9c705131289da8e8b43854895d7e171427c213885026583ac98",
+    "script/DeploySharedReservePool.s.sol": "515d75b14e2410608ca5521b6fda039abdc1c0540537f050a9b4bf724e05a034",
+    "script/DeployAssetMarkets.s.sol": "a5efd44bb348804afb5abdfd105aa0072b05e6d971bc1dd118d5cbc03f7e9172"
+  },
+  "sourceSha256Note": "Hashed AFTER the broadcast. script/DeployAssetMarkets.s.sol and script/VerifyAssetMarketsMainnet.s.sol include edits made during this session: the corrected trading-skim usage text and the corrected skim assertion. Neither changed any deployed bytecode - both are console.log strings and a read-only assertion - but the hashes are of the files as they now stand, so DeployAssetMarkets.s.sol's hash reflects the text edit made before step 2 ran.",
+  "routerUpgrade": {
+    "upgradedAt": "2026-09-11",
+    "proxy": "0xcCDe2EcDE7072Efe61822551152663F204CF73ce",
+    "implementationBefore": "0xED749CeA9ED2315fC8fC3257f21BEa78cd2c4DaA",
+    "implementationAfter": "0x6622197DD7E89Bf9188a187D66f68d5Ce38A87C7",
+    "script": "script/UpgradeMarketRouterMainnet.s.sol",
+    "reason": "seedLiquidity takes the market's own brandUSD where it took USDG, and refunds the unused stable side as brandUSD rather than redeeming it. The selector did not change, so the old implementation and the new frontend would have disagreed silently: the panel approves the brand and the contract pulls USDG, which reverts after the approval is already paid for. Trading was not touched.",
+    "storage": "No state variable added, moved or removed, so upgradeToAndCall carried empty calldata and no initializer ran.",
+    "verification": "Rehearsed in test/markets/RouterUpgradeMainnetFork.t.sol against a pinned fork of chain 4663 at block 60109000: the upgrade lands, owner and all five wired addresses read back unchanged, and a seed of live market 1 succeeds with a brand approval and no USDG approval. Both broadcast receipts returned status 0x1. The ERC1967 implementation slot and owner(), factory(), reservePool() and positionManager() were re-read on chain afterwards.",
+    "transactionHashes": [
+      "0x4e8f31679a088caff694593d03a489733941728258f6405eef7bf2379ad0ba1f",
+      "0x5bdad2fceb7d2e8a192ec8f9ef2fa9004a4d76d6d7fae5686aa20174b4fb6fac"
+    ],
+    "ownershipNote": "Still the deployer EOA with no timelock, so this took effect the moment it was mined. That is CRITICAL-1 in ASSET_MARKETS_AUDIT_UPGRADEABLE.md and is unchanged by this upgrade.",
+    "sourceSha256": {
+      "src/markets/MarketRouter.sol": "d8c9d59da660a87afd2fe232be3ea0150e2bc816c3989ba863b922e153ece353"
+    },
+    "sourceCommit": "faef1d3",
+    "sourceCommitNote": "Take the branded token for liquidity and launch from the form. The tree was clean at broadcast apart from this manifest and the two new upgrade files; the hash above is the authority.",
+    "subsequentUpgrade": {
+      "upgradedAt": "2026-09-11T21:04:02Z",
+      "implementationBefore": "0x6622197DD7E89Bf9188a187D66f68d5Ce38A87C7",
+      "implementationAfter": "0x7e4B0281e7d2978aEA428c15Fc05843e3f3F06F4",
+      "implementationDeploymentTransaction": "0x8a7a0fe9ec152b5a991db75505fd829be6915eabe12b20dc5689dc3b880674ea",
+      "implementationDeploymentBlock": 60560059,
+      "upgradeTransaction": "0xd0661a21e9f3a68f9ffd5868e7ca42f573286ace3d50f3419063f8c47a38097e",
+      "upgradeBlock": 60560080,
+      "deployedRuntimeCodeHash": "0xbdfe0e97637072768a5c3f49af21ff0892a9fb3b0df2869a848876dcc4674d73",
+      "script": "script/UpgradeMarketRouterMainnet.s.sol",
+      "broadcastRecord": "broadcast/UpgradeMarketRouterMainnet.s.sol/4663/run-1789160642071.json",
+      "broadcastRecordedSourceCommit": "e63337a",
+      "sourceCommitNote": "The broadcast names e63337a, but that Git object is not present in this repository clone. The transaction, block, implementation address and deployed runtime hash above are the reproducible on-chain record; do not infer this implementation from the current working tree."
+    }
+  }
+}

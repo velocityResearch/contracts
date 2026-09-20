@@ -1,0 +1,109 @@
+{
+  "chainId": 46630,
+  "rpcUrl": "https://rpc.testnet.chain.robinhood.com",
+  "explorer": "https://explorer.testnet.chain.robinhood.com",
+  "purpose": "Isolated unattended QA fixture, not the shared testnet or production deployment",
+  "sourceCommit": "e9dc0eaf3e140eef0e3da23d9f37e2f6b7cb1c08",
+  "deployer": "0xE5A86D30bF3011968954E2EdCd634637189cbAAa",
+  "contracts": {
+    "usdg": "0xb73b02a59b518186d697d1701f59cfd014e82689",
+    "asset": "0xc8c93ebf24275e4e5771ba1cc70d25e299aafa74",
+    "yieldSource": "0x7bfb80b725541129d086261d5ad42a133fd83f81",
+    "weth": "0x2f6b43ed53c8df1fbd94acd820eb82d98a162897",
+    "v3Factory": "0x9b355328adce183605dfadc8bb9378c67fdd638e",
+    "positionManager": "0x6e84b845c3a3432031d5c665ba0b692b8dc94b23",
+    "swapRouter": "0xd22defd35856c9e654e01464716d52720ec8bb69",
+    "reserve": "0x5f6616ddb97810faa04cf749d834efe389cf1fa0",
+    "factory": "0x7816cf044d2ccf9b63621fbed1c6686936defdb0",
+    "router": "0x9b0e85d99924eb705b5785db63285f0045b62a82"
+  },
+  "markets": [
+    {
+      "id": 1,
+      "brandSymbol": "NIGHTUSD",
+      "brandToken": "0xD7b30b93cBa1683ba374C35aeA4E57aD79C48Fc5",
+      "pool": "0x81257d7A3126EC6133703F8df36d87b80Cef46d2",
+      "fee": 3000,
+      "creationHash": "0xacec5aa38803f399e88d92424037b1f88f74f4d15dc11e127ef19f617b212141",
+      "seedHash": "0xfe72064de13764969b2a522df1ed930efea52c3d284e8cbfded1b2060fb3545f"
+    },
+    {
+      "id": 2,
+      "brandSymbol": "DAWNUSD",
+      "brandToken": "0x9E42C144E460624516cB028f45bdF734c89063C6",
+      "pool": "0x84F9206DA206e705604c0a3B6E2198ff638E6D8a",
+      "fee": 3000,
+      "creationHash": "0xd009a1466ee359487390dd03f8c6a08e560f82c7b587af92f9a443041ca4a7bb",
+      "seedHash": "0x41261a8e030fac6430783483476a05da436fb85049b87ea4eda08c750e281ae2"
+    },
+    {
+      "id": 3,
+      "brandSymbol": "NIGHTUSD",
+      "brandToken": "0xD7b30b93cBa1683ba374C35aeA4E57aD79C48Fc5",
+      "pool": "0xBd19c3F95A0AD6baf08d8Fcf442B1ef42cE7b3Be",
+      "fee": 500,
+      "creationHash": "0x4241fbb27339a29fbdb35257ba19dc31bb74d629ff7dd011386d0d6e61037646",
+      "unseeded": true
+    },
+    {
+      "id": 4,
+      "brandSymbol": "NIGHTUSD",
+      "brandToken": "0xD7b30b93cBa1683ba374C35aeA4E57aD79C48Fc5",
+      "pool": "0x37E082556b76d8CAe47c2F6E1BdEe0C1373f5a86",
+      "fee": 10000,
+      "creationHash": "0xb34ac09faecfb008ed7a0bc4dd9867f921e4c7308d7a5f5e5fa0344539eeb560",
+      "unseeded": true
+    },
+    {
+      "id": 5,
+      "brandSymbol": "DAWNUSD",
+      "brandToken": "0x9E42C144E460624516cB028f45bdF734c89063C6",
+      "pool": "0xB2Ea68d31b8372F12345C952f25A7585cC94921c",
+      "fee": 500,
+      "creationHash": "0xe990c9245f56077fbaa9025c971177688d98306577da7c5f705ea58d1fc679bf",
+      "unseeded": true
+    },
+    {
+      "id": 6,
+      "brandSymbol": "DAWNUSD",
+      "brandToken": "0x9E42C144E460624516cB028f45bdF734c89063C6",
+      "pool": "0x4b4fB9d7525e1D286573bD1D99999b43F33Ae083",
+      "fee": 10000,
+      "creationHash": "0xf0d0afec790b6b55bfcec6404a76d12dce3dc3a43ec6610f8c50c8b93ee72123",
+      "unseeded": true
+    }
+  ],
+  "transactionHashes": [
+    "0x08e8de383e87fd0e071614f05091118ee8e782c396eb037e5c45fcb7ba376790",
+    "0x6709148db48d4d5392a558ee3ad4302e8ee770d4d714b578157130a886a17571",
+    "0x23a453f2aad90e49900926da3311d8400957928d011b0f58b694c1c5cff18158",
+    "0xa4d522d7ee1f424fd809307452a16c75327552ccb7400638f856d9d9587f3623",
+    "0x87bd5caa8850864411ae8efea099f4f2d025253f6a875b39ef5600950de54d1f",
+    "0xfbffc996fab8f300555e2705172656a84bfb94d81bb1aebeeab89ac8f8365e36",
+    "0x556a0a04265ce67312a484afa9dcbc89e901b524b78bafa2eb907e7c59288ee5",
+    "0x587a2ef48491b857729af14d2a2c61fa5cd633a830bd2a93db088f8b722b72f4",
+    "0x526abcdf03c4a7a487507535ae2518a9e5fac1b44cc8ab846bc5a4270cdc9324",
+    "0x84e45f83003af9a05726af544c604b53814628800604bf132637acd513c70ab4",
+    "0x92bfd2b342c43eb0237b6908b55ec44f38b45f439d15727d8e7394726291bb79",
+    "0x3811474321d60d618b478f410415b673ee863403072c22fcd663d4c86d4933dd",
+    "0x30b1302b9a0b6fc0fd823d63ed270d10b62dfe2c389540717747a7d88897f3e0"
+  ],
+  "verifiedReceipts": 13,
+  "fixtures": "Faucet assets, transfer-funded simulated yield source with capped recall, genuine pinned Uniswap V3 artifacts; testnet only",
+  "qaBrands": [
+    {
+      "name": "QA Night Dollar",
+      "symbol": "NIGHTUSD",
+      "token": "0xD7b30b93cBa1683ba374C35aeA4E57aD79C48Fc5",
+      "treasury": "0x8aE1c2762Aa60e9bD70c960EdE04e8E2c77Ed910",
+      "registrationHash": "0x275559c3935506a15494bcac5ce3a476b69b120139c0cf4b0bad37366d00257e"
+    },
+    {
+      "name": "QA Dawn Dollar",
+      "symbol": "DAWNUSD",
+      "token": "0x9E42C144E460624516cB028f45bdF734c89063C6",
+      "treasury": "0xdC180e396D925a3a51340a54204bf59A72EcF819",
+      "registrationHash": "0x6e272df0027d22756b1e6b9ef86a32a20f365181cd2c43c40df9769425d49e8f"
+    }
+  ]
+}

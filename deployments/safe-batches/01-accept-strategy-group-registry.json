@@ -1,0 +1,20 @@
+{
+  "version": "1.0",
+  "chainId": "4663",
+  "createdAt": 1789878734742,
+  "meta": {
+    "name": "Accept StrategyGroupRegistry",
+    "description": "Live test of the handover. Read-only metadata that nothing settles against, so a mistake here costs nothing. Run this ALONE and confirm owner() is the Safe before importing batch 02.",
+    "txBuilderVersion": "1.16.5",
+    "createdFromSafeAddress": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373"
+  },
+  "transactions": [
+    {
+      "to": "0xBd02B0f3253F31dD02A752582e7b8974589333f7",
+      "value": "0",
+      "data": "0x79ba5097",
+      "contractMethod": null,
+      "contractInputsValues": null
+    }
+  ]
+}

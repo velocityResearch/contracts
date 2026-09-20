@@ -1,0 +1,47 @@
+{
+  "status": "live",
+  "target": "preview",
+  "protected": true,
+  "application": "web-stable",
+  "projectName": "stables",
+  "team": "stables",
+  "sourceCommit": "a4f529b",
+  "sourceState": "Built from the uncommitted integration-hardening working tree represented by deployments/susdai-testnet.json.",
+  "contractManifest": "deployments/susdai-testnet.json",
+  "chainId": 46630,
+  "deploymentUrl": "https://stables-3hew257xf-stables.vercel.app",
+  "deploymentId": "dpl_3vf2ywbyPyhzpdcnrxmjt56Hv9iB",
+  "inspectorUrl": "https://vercel.com/stables/stables/3vf2ywbyPyhzpdcnrxmjt56Hv9iB",
+  "environment": {
+    "NEXT_PUBLIC_CHAIN_ID": "46630",
+    "NEXT_PUBLIC_RPC_URL": "https://rpc.testnet.chain.robinhood.com",
+    "NEXT_PUBLIC_ASSET_MARKET_FACTORY": "0x84C4Fb1873413029e02140c847DC117667D784B7",
+    "NEXT_PUBLIC_MARKET_ROUTER": "0x1830757b128B8034dABE9feC0BE62A295b2049d7",
+    "NEXT_PUBLIC_SHARED_RESERVE_POOL": "0x2AdDa68Ee81b87d04Dcf6d2590d0C8D9f366369F",
+    "NEXT_PUBLIC_STRATEGY_GROUP_REGISTRY": "0x2cEe4dD66FC7b486111048dEfd0f28675F3e0100",
+    "NEXT_PUBLIC_USDG": "0x2c6E2A455688Ce9a4ba85D7bf90eBe9b7acC190D"
+  },
+  "verifiedAt": "2026-09-14T17:39:51Z",
+  "verification": {
+    "deploymentReadyState": "READY",
+    "contractMode": true,
+    "strategyGroups": [
+      "USDG market reserve",
+      "sUSDai reserve"
+    ],
+    "unavailableStrategyGroups": 0,
+    "sampleStandaloneBrand": "tsUSDa",
+    "sampleBrandAddress": "0xD862Fb56A36a8a18E33ADA60fF078C4C98e23565",
+    "redemptionFeeBps": 14,
+    "liabilityCap": "100000000000",
+    "outboundInFlight": "0",
+    "inboundInFlight": "0",
+    "method": "Authenticated Vercel fetches of /stablecoins and the sample brand detail route; local browser screenshots verified the same responsive surfaces before deployment."
+  },
+  "audit": {
+    "high": 0,
+    "critical": 0,
+    "moderate": 23,
+    "note": "Targeted axios and ws overrides remove both prior high-severity findings. Remaining moderate findings are transitive wallet SDK issues without a forward non-breaking npm repair."
+  }
+}

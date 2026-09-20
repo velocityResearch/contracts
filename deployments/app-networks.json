@@ -1,0 +1,54 @@
+{
+  "defaultChainId": 4663,
+  "deployments": [
+    {
+      "chainId": 4663,
+      "rpcUrl": "https://rpc.mainnet.chain.robinhood.com",
+      "factory": "0x22AA61c589B90731752236c07d1455D0065bfc79",
+      "router": "0x7553919210B172438853C3694Fd88fAfD4bE3Eb4",
+      "reservePool": "0xdB485351d953F10FAA7c820B7648f6E91d9Cd9F3",
+      "usdg": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+      "zapper": "0x57FA92648c722Bb28A0d011f020685B952110a2D",
+      "registry": "0xBd02B0f3253F31dD02A752582e7b8974589333f7",
+      "feeHook": "0xc9932584c5154e4F58313a2e5423522E74e540Cc",
+      "isTestnet": false,
+      "networkName": "Robinhood",
+      "launchpad": {
+        "factory": "0x95fe000285DA7797cC01394cCc410628B26e898d",
+        "router": "0xf763CA4670Fa9eCB53821352B13450F514889C79",
+        "feeEscrow": "0xb1BeEbb3c077705273bcC4F80f560F43941205b6",
+        "locker": "0x2F26F8fE6c8f6BA3F72D062f1a4E64fFe596963C"
+      }
+    },
+    {
+      "chainId": 46630,
+      "rpcUrl": "https://rpc.testnet.chain.robinhood.com",
+      "networkName": "Robinhood Testnet",
+      "isTestnet": true,
+      "factory": "0x84C4Fb1873413029e02140c847DC117667D784B7",
+      "router": "0x1830757b128B8034dABE9feC0BE62A295b2049d7",
+      "reservePool": "0x2AdDa68Ee81b87d04Dcf6d2590d0C8D9f366369F",
+      "usdg": "0x2c6E2A455688Ce9a4ba85D7bf90eBe9b7acC190D",
+      "zapper": null
+    },
+    {
+      "chainId": 84532,
+      "rpcUrl": "https://base-sepolia-rpc.publicnode.com",
+      "networkName": "Base Sepolia",
+      "isTestnet": true,
+      "factory": "0x013D1974F8215a12280e6b9a33F9732277F38C0e",
+      "router": "0xb2Dc3fdDBa4A892184947575430FDdB1DacC06B9",
+      "reservePool": "0x1852E4b4a25273663f5F5e4D609c15269005be04",
+      "usdg": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      "zapper": "0xf8b758dfb9d22448Ab13C7FcC1f23b75A998C34E",
+      "strategyGroupRegistry": "0x7044E3290213F463879BBe929F22BA2Eb8089762",
+      "feeHook": "0x986000Be73f1ccfe7cb2cd6D461Fd24c140780CC",
+      "launchpad": {
+        "factory": "0xB8C3724c697720BBede40c022660D116c2A3B9F2",
+        "router": "0xE8Ff05B14704eC9A3fb39959Fc40FDa482Ffe4b7",
+        "feeEscrow": "0xFf1fBcdd05E4E9A28B8760f6D39216A65C393661",
+        "locker": "0x422E356fb62852D4D24D457991BBc1D777ab2Db4"
+      }
+    }
+  ]
+}

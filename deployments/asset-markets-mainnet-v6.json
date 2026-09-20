@@ -1,0 +1,250 @@
+{
+  "chainId": 4663,
+  "network": "Robinhood Chain mainnet",
+  "rpcUrl": "https://rpc.mainnet.chain.robinhood.com",
+  "explorer": "https://robinhoodchain.blockscout.com",
+  "deployedAt": "2026-09-17",
+  "generation": "gen-6: identical contract code to gen-5, redeployed with TIMELOCK_MIN_DELAY=0 so that no TimelockController exists and the deployer EOA is the sole owner of every proxy and beacon. Deliberate, and the reason was true on 2026-09-17 and is not any more: nothing was live then, so every owner call - caps, fees, bridge limits, implementations - could land in one transaction instead of waiting 48h. Markets, launches and third-party brand supply exist now, which converts that convenience into the standing risk recorded in governance.timelockNote and the first two openItems. Do not read this field as a statement that the deployment is empty; read deployments/mainnet-state.json.",
+  "supersedes": "deployments/asset-markets-mainnet-v5.json",
+  "supersedesNote": "Gen-5 (factory 0xeba2e7A2...1B95) was deployed 2026-09-16 with a 48h TimelockController and was never used: marketCount 0, launchEnabled false, no asset approved, no brand registered, no deposit. It was abandoned rather than re-governed because the timelock owned the reserve, the adapters, the guard and eight beacons, which gated every owner setter as well as every upgrade - so the three values the sUSDai group needed (liabilityCap, redemptionFeeBps, maxBridgeAmount) were each a 48h scheduled operation. Redeploying cost ~0.0026 ETH and removed the wait entirely. Gen-5's contracts remain on chain, owned by a timelock nobody will schedule against, holding nothing. Gen-4 before it is described in the v4 manifest.",
+  "deployer": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9",
+  "liveState": "deployments/mainnet-state.json",
+  "liveStateNote": "THIS FILE IS THE ADDRESS BOOK AND THE REASONING. IT IS NOT THE STATE. Counts, balances, fee rates, caps, owners, pending nominations, proxy implementations and per-pool fees are read from chain 4663 into deployments/mainnet-state.json by `node script/sync-mainnet-state.mjs`, and every such field has been removed from here. The removed fields were not merely out of date, they contradicted each other inside this one file: an earlier `status` claimed zero markets and zero launches while the keys below described live market 13 and a graduated launched token. A number that cannot be regenerated cannot be trusted, so the numbers left in this file are only the ones that record a decision (governance intent, the Arbitrum-side hub limits, deploy cost) or a historical measurement that is dated in its own text. Read deployments/mainnet-state.json for anything that moves, and regenerate it rather than editing it.",
+  "sourceBranch": "work/overnight-usdcai-launchpad",
+  "governance": {
+    "timelockController": null,
+    "timelockMinDelaySeconds": 0,
+    "timelockNote": "There is no timelock. DeploySharedReservePool takes a documented branch at TIMELOCK_MIN_DELAY=0 and leaves the deploying EOA as the owner of the guard, the beacons, the adapter and the pool. This re-opens CRITICAL-1 in docs/ASSET_MARKETS_MAINNET.md section 11 by choice: a leaked deployer key rewrites every brand token, treasury, fee vault and reward distributor with nobody able to react. MUST be replaced by a timelock plus a multisig before third-party deposits. Adopting one later costs only the transfers - deploy a TimelockController, then transferOwnership on the pool, the adapter, the guard and every beacon.",
+    "owner": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9",
+    "guardian": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9",
+    "guardianNote": "Same key as the deployer, the owner and the protocol treasury. With no timelock this key is the entire governance of the protocol. MOVE THE GUARDIAN TO A SECOND KEY.",
+    "protocolTreasury": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9",
+    "ownedByTheDeployerEoa": [
+      "SharedReservePool (USDG group)",
+      "SharedReservePool (sUSDai group)",
+      "MorphoBlueYieldSource",
+      "SUSDaiYieldSource",
+      "ProtocolGuard",
+      "all four beacons from step 1",
+      "all four beacons from step 2",
+      "AssetMarketFactory, MarketRouter, LaunchFactory and the rest of the launchpad"
+    ],
+    "ownershipNote": "The addresses above are the INTENDED governance. What the chain actually reports - `owner()` and `pendingOwner()` on every proxy, `owner()` on every beacon, and the guardian on ProtocolGuard - is in deployments/mainnet-state.json under gen6, read from the slot rather than asserted here. An earlier revision of this file claimed `pendingOwner() == address(0)` on every Ownable2Step proxy as a verified fact with no date on it; that is precisely the kind of claim that rots silently, because a pending nomination is one transaction away and leaves no trace in a hand-written file."
+  },
+  "verification": {
+    "preflight": "PASSED at gen-5; the same hardcoded constants are unchanged in this build",
+    "postDeploy": "VerifyAssetMarketsMainnet.s.sol PASSED against the live v6 addresses. It now reports EOA ownership as a loud BLOCKER verdict instead of reverting - it used to refuse to verify a stack its own sibling script produces at TIMELOCK_MIN_DELAY=0.",
+    "liveForkTests": "test/LiveGen5Mainnet.t.sol 14/14 passed against a fork of this chain at the v6 addresses, including a full launch-buy-graduate cycle, mint/redeem both directions, float-yield harvest to a staked LP, and the guardian's pause asymmetry.",
+    "offlineTests": "552 passed, 0 failed, 2 skipped",
+    "rehearsal": "script/rehearse-mainnet.sh, including DEPLOY_LAUNCHPAD=true, against an anvil fork of 4663",
+    "hookBits": "0xcc confirmed on the deployed proxy address 0xc993...40Cc",
+    "explorerVerification": "NOT ATTEMPTED. Blockscout sits behind Cloudflare and nothing has been verified through it."
+  },
+  "core": {
+    "sharedReservePool": "0xdB485351d953F10FAA7c820B7648f6E91d9Cd9F3",
+    "sharedReservePoolImplementation": "0x1Bd23DdCDC464CD0555C4B167a835D7F55b2b27e",
+    "morphoBlueYieldSource": "0x8e4E5e5EE25DF4721D845600F82bf2Bca48Fa358",
+    "morphoBlueYieldSourceImplementation": "0x0C23b7628E1bfED0b082447c0746C9760C386DAe",
+    "morphoBlueYieldSourceImplementationNote": "UPGRADED 2026-09-19 (tx 0xf570920553ea80bd75999f2c7808b2e3a2e544015475deb4ed1d4f29e620cad8) from 0xe26e0c37a01942f91f43b98c20df7d853d7933e8, which had no withdrawable(). Adding it was the precondition for MarketLens: the lens deploy script refuses to bind to a reserve whose adapter cannot report its releasable balance, because the alternative is a lens that silently quotes only idle cash. A pure view addition, no storage touched.",
+    "protocolGuard": "0x013D1974F8215a12280e6b9a33F9732277F38C0e",
+    "protocolFeeHook": "0xc9932584c5154e4F58313a2e5423522E74e540Cc",
+    "protocolFeeHookImplementation": "0xd4AC6b17338866E43E1922cfb563A81Ff36b425B",
+    "protocolFeeHookImplementationNote": "UPGRADED three times on 2026-09-19. First by UpgradeProtocolFeeBasisMainnet (skim moved to the unspecified currency in afterSwap for BOTH directions, so beforeSwap now returns ZERO_DELTA and a partial fill is charged on the fill; see protocolFeeBasisNote). Then by UpgradeFeeRecipientSetterMainnet, from 0x31f073b76E5d05b8DF329D3361AB848a346cd6A9, which added an owner-only setFeeRecipient. Then to the address above, which added the FEE_INCREASE_DELAY announce-and-commit path (pendingFeePipsOf, feePipsEffectiveAt, commitPoolFeePips) and lowered MAX_FEE_PIPS from 5% to 1%. CORRECTED 2026-09-20: this key recorded 0x030A017Ff78745a5e8c13cE8cBcD2601eB778F01 - the second of the three - while the proxy's ERC-1967 slot, deployments/mainnet-state.json and script/verify-mainnet-sourcify.sh all said 0xd4AC6b17. Read the slot, not this line: cast storage 0xc9932584c5154e4F58313a2e5423522E74e540Cc 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc. The mined 0x00CC permission bits are unchanged across all three and were asserted equal before each broadcast: PoolKey.hooks is part of pool identity, so a hook at a new address would orphan all 18 markets.",
+    "protocolFeeHookNote": "Mined address: low 14 bits are 0xcc = beforeSwap | afterSwap | both return-deltas. Permanent; an upgrade must never change getHookPermissions.",
+    "assetMarketFactory": "0x22AA61c589B90731752236c07d1455D0065bfc79",
+    "assetMarketFactoryImplementation": "0x45Ce2F93aD46d1393Eff5da56fFc4537740022C0",
+    "marketRouter": "0x7553919210B172438853C3694Fd88fAfD4bE3Eb4",
+    "marketRouterImplementation": "0x95106c6424B81A8f45590Ff64B31DdB40897Dc2A",
+    "marketDeployerLibrary": "0xbd7706Ffa5856232C3d64dE6269cc78c13229bdf",
+    "marketDeployerLibraryNote": "Unchanged from gen-5: a pure library with no state, reused as-is.",
+    "marketLens": "0x0a3d8332D949b4aE650f3aC6468620e403a50fF1",
+    "v4Quoter": "0x6492C2e9340A6Cc1b12963D4723D819Af5B3CC5F",
+    "stateView": "0xa7D3DeD16C94F4FBAb1Fc24a0c6243043A67A804",
+    "quotingNote": "Deployed 2026-09-19. MarketLens composes the two legs of a USDG-denominated trade and is the only on-chain read of the reserve's mint cap and redeemable balance. The quoter and StateView are Uniswap's own, built unmodified from lib/v4-periphery by script/deploy-v4-lens.sh; the lens was then bound to the factory and the quoter by script/DeployMarketLens.s.sol. The stock quoter is exact for our pools because ProtocolFeeHook's skim is a hook delta and is therefore already inside the BalanceDelta that PoolManager.swap returns. An earlier revision pasted a live quote here - a route(13) dump, a maxMint and a redeemableAssets figure - which were true for one block and have been wrong since; the same values, at a stated block, are in deployments/mainnet-state.json.",
+    "beacons": {
+      "pooledBrandToken": "0x1964b405C09CF252d835A80556536C86dcbE105F",
+      "poolBrandTreasury": "0xf8b758dfb9d22448Ab13C7FcC1f23b75A998C34E",
+      "brandFeeVault": "0x65876276feE875e1A120F63575150593E6AEa0d3",
+      "lpRewardDistributor": "0xb6b86f5A01d8c04f68f827532C8aCE9458Db57a6",
+      "beaconsNote": "CORRECTED 2026-09-19. brandFeeVault and lpRewardDistributor previously recorded 0xF360132A1156f9E7843001F83F78768a29A772Ad and 0x422E356fb62852D4D24D457991BBc1D777ab2Db4. Both of those exist on chain 4663, are real UpgradeableBeacons, are owned by the deployer and point at valid implementations - and the factory references NEITHER of them. AssetMarketFactory.beacons() returns the two addresses above, so those are the beacons behind every live market's BrandFeeVault and LpRewardDistributor, and upgrading the two recorded here before would have spent gas, emitted Upgraded, moved nothing, and looked like it worked. This is gen-4's orphanedDeployments trap repeating one generation later, which is why deployments/mainnet-state.json now builds its beacon list from what the chain says is wired - reserve.brandTokenBeacon, reserve.treasuryBeacon and factory.beacons() - and marks any beacon nothing references as orphaned rather than listing it as if it were live. The two brand-token and treasury beacons above were correct: both reserves name them."
+    },
+    "assetMarketFactoryImplementationNote": "UPGRADED 2026-09-17T09:03:20Z (tx 0x4b423d6d61a50a5a54236d330d981fcf09270043b4eb32c65e567a848a99af4d) from 0xdf04e3cbccde64027eb35963f6817540be4f96d7, the implementation the gen-6 deploy left behind at 2026-09-16T18:58:56Z (tx 0xc5b896dd8bd7bbf62bbe7ff56e4c7457cdcf509edb1d19bb6c5c21106b8e1523). This key recorded the deploy-time address for two days after the upgrade, because it is hand-written and the upgrade left no broadcast artifact. Provenance came from the proxy's own Upgraded(address) events rather than from the repo, which is the only source that cannot be forgotten: topic 0xbc7cd75a20ee27fd9adebab32041f755214dbc6bffa90cc0225b39da2e5c2d3b. deployments/mainnet-state.json reads the current implementation out of the ERC-1967 slot on every run.",
+    "marketRouterImplementationNote": "UPGRADED 2026-09-19 by UpgradeAggregatorSurfaceMainnet, from 0x3c09784b3e771f57FE0f6651292bbb470e7bACbE, adding sellForUsdg. This CLOSES a partially-applied release: the same script had previously landed on both yield adapters and not on the router, so withdrawable(address,address) was live while sellForUsdg was absent from the router's bytecode even though the aggregator docs advertised it. The script now decides each leg by whether that leg's new selector already answers, so it is re-runnable and doubles as a drift check. Confirmed by byte-scanning the new implementation for all four router selectors.",
+    "protocolFeeBasisNote": "ECONOMICS CHANGED with that upgrade, and an integrator must be told. An exact-input swap now pays its 0.50% on the OUTPUT rather than the input, so the protocol's take falls by exactly the pool's LP fee (the output is already net of it) and accrues in the output currency. Worked at 5000 pips through a 0.30% pool on 1000 units in: the protocol takes 4.985 of the output instead of 5.000 of the input, LPs gain 2.985 -> 3.000, and the trader's all-in rate is materially unchanged. All 18 live markets therefore begin accruing in their ASSET token on buys. pendingFees is keyed per pool per currency and collect sweeps both sides of the PoolKey, so balances already accrued on the brand side stay claimable by the same collect.",
+    "marketLensNote": "REDEPLOYED 2026-09-19, from 0x1727ffB1F47C9fA3a25c3Ea5Dd34293eDa98F9Dc, because MarketLens is NOT upgradeable and its exact-out quoting depends on which leg the hook charges. Its _grossInputFor encoded the old asymmetry, so against the new hook every quoteBuyExactOut/quoteSellExactOut reverted QuoteUnavailable. Confirmed on chain after the hook upgrade: the old lens returns 0xea636e68 (QuoteUnavailable) and the new one answers. The old lens was stale rather than wrong - it validates every figure with a real exact-input quote against the live hook before returning it, so it could only revert or overshoot, never under-quote - which is why hook-first ordering was safe.",
+    "sharedReservePoolImplementationNote": "UPGRADED TWICE. First 2026-09-19 by UpgradeReserveStrictRedeemMainnet, to 0x6F41E2C07553cff379966f2EfDf835e965E0b944: redeem(token,amount,receiver) demands previewRedeem(amount) instead of accepting any payout including zero; it used to burn first and pay whatever could be raised, booking the shortfall to lossCarryforward, which turned a short reserve into a silent realised loss for the aggregator selector 0x5c833bfd. A haircut is still reachable through the 4-argument overload with a lower bound, so no holder lost an option. Safe to tighten because every in-protocol caller already passed an explicit minimum (MarketRouter, LaunchRouter, BrandPsm). Then 2026-09-20T02:54:03Z by UpgradeReserveFeeDelayMainnet, to the address above, which added the announce-and-commit path for a redemption fee INCREASE (pendingRedemptionFeeBps, redemptionFeeEffectiveAt, commitRedemptionFee). CORRECTED 2026-09-20: this key recorded the first of the two for a day, while both proxies' ERC-1967 slots read the second. BOTH reserve proxies share one implementation, before and after.",
+    "liquidityZapper": "0x57FA92648c722Bb28A0d011f020685B952110a2D",
+    "liquidityZapperImplementation": "0x99141B1d1F6859A8830ED97EA359d96F79A8d52e",
+    "liquidityZapperNote": "REPLACED 2026-09-19 by DeployLiquidityZapperV2. The new one is a UUPS proxy, owned and guarded; the old 0x6f67108e7716A1f00902Ed219B055633fB2FE8Fd is STILL LIVE, still ownerless, and still accepts minLiquidity = 0 and minUsdgOut = 0 while passing amountOutMinimum: 0 to SwapRouter02, which makes both its doors sandwichable. It cannot be fixed, only de-referenced. Do not point any client at it. The new one refuses a zero bound on both doors before taking custody and declares the caller's bound to SwapRouter02. Making it upgradeable reverses a deliberate ownerless design: the tradeoff accepted is that the owner can now rewrite a contract holding standing Permit2 allowances, judged cheaper than a live slippage defect that no one can repair.",
+    "feeRecipientIsRepointableNote": "UNTIL 2026-09-19 A POOL'S FEE DESTINATION WAS PERMANENT. registerPool bound feeRecipientOf one-shot with no setter, so all 18 live markets paid the deployer EOA forever and rotating ownership would NOT have rotated revenue. The one-shot was justified in NatSpec as keeping 'this market's fees buy this market's asset' unrevokable for BuybackEngine reading a BrandFeeVault, but both contracts were deleted and the registered destination is the protocol treasury, not a vault, so it guarded a property the system no longer has. It was never a constraint on the owner either, who could always ship an implementation that repoints. setFeeRecipient now applies to existing pools as well as new ones, deliberately: a fix that cannot rotate the keys currently in use is not a fix. ORDERING: pendingFees pays whoever is named when collect RUNS, not when the fee accrued, so collect before repointing if the old destination is owed what is already there."
+  },
+  "brandPsm": {
+    "note": "A BrandPsm is one brand token's 1:1 window onto its SharedReservePool, wearing MakerDAO's DssLitePsm interface: gem() is USDG, dai() is the brand, pocket() is the reserve, gemJoin() is the window itself, and sellGem/buyGem mint and redeem through the reserve. It exists so that an aggregator which already integrates a PSM reaches this reserve's 1:1 mint/redeem as configuration rather than as a new venue. It holds no funds, has no owner, no initializer and no upgrade path, and grants no authority: SharedReservePool.mint is permissionless already, and redeem burns from its own caller, so buyGem burns the window's transient balance and never a user's.",
+    "deployScript": "script/DeployBrandPsm.s.sol",
+    "deployScriptNote": "Deploys the factory, then one window per brand in BRAND_TOKENS on RESERVE_POOL, skipping brands that already have a window and refusing, before any broadcast, a brand the reserve does not hold. Defaults are the sUSDai reserve and the four brands below. After a new brand is registered, re-run it with BRAND_PSM_FACTORY set to the recorded factory: only the missing windows are opened.",
+    "reserve": "0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2",
+    "reserveNote": "The sUSDai group's reserve, the same address susdaiGroup.reserve records. Windows are keyed by (reserve, brand), so the default USDG/Morpho reserve 0xdB485351d953F10FAA7c820B7648f6E91d9Cd9F3 needs its own run and its own entries. A window on this reserve quotes tin() 0 and tout() 2.004008e15 - the fee-on-top form of the 20 bps fee-inclusive redemption fee - and reports tin() as HALTED while the reserve is paused, because mint is guarded and redeem deliberately is not.",
+    "factory": "0xB1e0ED28e24d3999216979847f9473b5C7bf12bA",
+    "factoryNote": "Deployed 2026-09-19. BrandPsmFactory is permissionless, ownerless and holds nothing but its index: psmOf(reserve, brand) is the canonical window, and predict(reserve, brand) returns that address before the window exists, because deployment is CREATE2 salted with the pair. predict matched deploy for all four windows below, asserted in-script before the run was accepted.",
+    "windows": {
+      "AIUSD": "0x1339b306Ce53d1393995D306BF7a365d4c825300",
+      "SDOGE.d": "0x6f36300eA9486e7615f29EFA5C6eAC5Ee2bb5A4A",
+      "ABR.d": "0x1539CE28BD6837EFaA9EadEB8aa76669Fcef3f35",
+      "CORGIGG.d": "0x61bCD58B76cb703AAD74cAa64B85D094dcb0554f"
+    },
+    "windowsNote": "Deployed 2026-09-19. One window per brand: a multi-brand contract cannot answer dai() with a single address, and both KyberSwap and 0x key a venue by contract address. AIUSD is the quote brand shared by markets 13, 14 and 15; the other three each belong to one graduated launchpad token. All four are 6-decimal, which is what makes the 1:1 peg exact in integer units - a BrandPsm refuses a brand whose decimals differ from the reserve asset's. Read back live on the AIUSD window: gem USDG, dai AIUSD, pocket the reserve, gemJoin itself, tin 0, tout 2004008016032065, dec 6, to18ConversionFactor 1, live 1, daiForGem(10e6) 10020040, and psm() reverts as it must.",
+    "kyberSwapNote": "KyberSwap's public lite-psm liquidity source MUST be configured with IsMint: true. A BrandPsm mints its dai through the reserve instead of holding an inventory of it, so a quoter that reads a dai balance on the window sees zero and treats the venue as empty; IsMint mode skips that read. Two further departures from DssLitePsm an integrator must carry: dai is 6-decimal here, so to18ConversionFactor is 1 and any hardcoded WAD/gem-basis ratio must be dropped; and tout is quoted fee-on-top, bps/(10000-bps) rounded up, so both the inverting and the subtracting convention land at or below what the reserve will actually pay."
+  },
+  "launchpad": {
+    "feeEscrow": "0xb1BeEbb3c077705273bcC4F80f560F43941205b6",
+    "factory": "0x95fe000285DA7797cC01394cCc410628B26e898d",
+    "factoryImplementation": "0xfcC13E959E4e441F0d83dd05B4dfaEA7CE459be3",
+    "factoryImplementationNote": "UPGRADED 2026-09-19 by UpgradeLaunchpadLpFundMainnet, from 0x4A8A4Af199C465a0C57Bc43Dbfbc5BCF08a89E6B. Adds lpFundRecipient, lpFundShareBps and graduatedLpFundShareBps, all three packed into the free bytes of the slot graduatedCreatorShareBps, launchEnabled and graduatedCreatorYieldShareBps already shared (2+1+2 used of 32, the three new fields take 24 more), so no initializer ran and nothing below the slot moved. Verified by reading a launch record back afterwards.",
+    "locker": "0x2F26F8fE6c8f6BA3F72D062f1a4E64fFe596963C",
+    "launchDeployer": "0x7979708A371E9f9dDb43A432595c3F59f77dd5E7",
+    "graduation": "0xF5f4Eb45347ec69CB56D1c682a0FdA83bb9f4efC",
+    "retired": {
+      "locker": "0xEDdCe1d6ea0bFa375D03114b46ac552a4463398b",
+      "graduation": "0x404AaF69DEa7cf53512D2063e4a3DE36a644140c",
+      "note": "Replaced 2026-09-17. The locker is not upgradeable by design, so splitting its income onto two rates required a new deployment, and the graduation module holds its locker as an immutable. Safe because nothing had graduated: launchCount was 1 and that launch was still on its curve, so no position was staked under the old locker. Both are now unreferenced by the factories and hold nothing."
+    },
+    "feeSplit": {
+      "note": "Every leg is 40% creator / 30% protocol / 30% LP fund as of 2026-09-19. The live figures are in deployments/mainnet-state.json; these are the intent, not the reading.",
+      "curveFee": "protocolFeeShareBps 3000 + lpFundShareBps 3000, creator takes the 4000 remainder",
+      "graduatedLpFees": "graduatedCreatorShareBps 4000 + graduatedLpFundShareBps 3000, protocol takes the remainder",
+      "graduatedFloatYield": "graduatedCreatorYieldShareBps 4000 + graduatedLpFundShareBps 3000, protocol takes the remainder",
+      "whereTheFundsCutComesFrom": "The LP fund's share is subtracted from the PROTOCOL's remainder on both post-graduation legs, never from the creator's share. That is what makes it safe for graduatedLpFundShareBps to be read live and applied to positions that graduated before the fund existed: raising it dilutes the protocol alone and cannot reprice a term a creator was sold.",
+      "lpFundRecipient": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9",
+      "lpFundRecipientNote": "Pointed at the protocol treasury EOA as a holding position while the fund's mandate is decided. It is NOT a special address: the escrow credits it as an ordinary claimable balance, so setLpFundRecipient can redirect it later with nothing stranded. Because it currently equals protocolFeeRecipient, the protocol's effective take is 60% until it is repointed - do not read the 30/30 split off chain balances.",
+      "settersAreOrderDependent": "setLpFundRecipient must precede any nonzero share (every share setter refuses a rate with no recipient), and graduatedCreatorShareBps must come DOWN to 4000 before graduatedLpFundShareBps goes UP to 3000, because the old value 10000 plus 3000 exceeds a whole leg and is refused InvalidBasisPoints."
+    },
+    "router": "0xf763CA4670Fa9eCB53821352B13450F514889C79",
+    "launchEnabledNote": "ENABLED 2026-09-17. This was the irreversible step: before it, launchEnabled was false and no quote brand existed, so every launchpad call reverted. Now anyone holding an approved quote brand can create a token. The live flag, the launch count and every launch's phase are in deployments/mainnet-state.json under gen6.launchpad.",
+    "registeredOnMarketFactoryNote": "AssetMarketFactory.launchpad() must equal the graduation module; without it every graduation reverts OnlyLaunchpad. Read it from deployments/mainnet-state.json (gen6.factory.launchpad) rather than trusting a boolean here, because setLaunchpad is re-callable and a wrong answer here looks identical to a right one.",
+    "wiringIsRotatable": "setGraduation, setLaunchDeployer and setFeeEscrow are re-callable in this build. They used to revert AlreadySet, which bought nothing - a UUPS owner could always re-point by upgrading - while making a defective graduation module unreplaceable.",
+    "quoteBrand": {
+      "address": "0xE20cE31a996f07b3d70F9C840e6810F0f572C884",
+      "name": "Stables Launch Dollar",
+      "symbol": "slUSD",
+      "decimals": 6,
+      "reserve": "0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2",
+      "reserveNote": "The sUSDai group, NOT the market factory's default reserve. This works because the factory approves several reserves and a launch carries its reserve through to the market it opens. Proven on a fork of the live chain by test_live_anSusdaiBackedBrandLaunchesAndGraduatesOffTheDefaultReserve, which launches, buys the allocation out, graduates, and asserts the resulting market records the sUSDai reserve rather than falling back to the default.",
+      "backingCaveat": "While the keeper is stopped, deposits into this brand are held as local USDG in the adapter and are NOT bridged to Arbitrum, so the brand earns no sUSDai yield. It is fully backed and redeemable throughout - maxBridgeAmount gates bridgeOut and never deposit - but redemption costs 20 bps and there is no yield yet to offset it. Minting is safe; calling it yield-bearing is not yet true.",
+      "economicsNote": "phantomQuote, graduationThreshold, launchFee and decimals are stored per quote brand in LaunchFactory.pairTokenEconomics and are owner-settable, so they are read into deployments/mainnet-state.json (gen6.launchpad.quoteBrands) rather than copied here. That section also lists every OTHER approved quote brand, which is the fact this key used to hide: slUSD is not the only one, and the launches that exist were quoted in a different brand.",
+      "liabilityCapNote": "The reserve's liabilityCap bounds every sUSDai-backed launch in aggregate; minting past it reverts LiabilityCapExceeded, observed while writing the proof test. The live cap is in deployments/mainnet-state.json under the sUSDai reserve; it has been raised twice and any figure written here has been wrong within a day both times."
+    },
+    "lockerNote": "REDEPLOYED 2026-09-19 by UpgradeLaunchpadLpFundMainnet, from 0xACf51B066b90596e8536A1423Df4A6b94D5815c9. The locker is not upgradeable by design, so a three-way split could only arrive as a new deployment. The OLD locker is still live and still holds the three positions that had already graduated (markets 16, 17, 18): nothing moves a staked position between lockers, so those keep the LP-fee share their launch record was snapshotted with (10000 to the creator) while their float yield does follow the live rate. Do not treat the old address as dead; its collect path is the only way those three positions ever pay out.",
+    "graduationNote": "REDEPLOYED 2026-09-19 alongside the locker, from 0xC9C2766B197A9424BE51B2e5CfD438F043A757C2. LaunchGraduation holds its locker as an immutable, so replacing the locker forces a new module. Both LaunchFactory.setGraduation and AssetMarketFactory.setLaunchpad were re-pointed in the same run; without the second, phase two of every graduation reverts OnlyLaunchpad.",
+    "launchDeployerNote": "ROTATED 2026-09-19 by RotateLaunchDeployerMainnet, from 0xe079DEbb1dbcBD197B73f985549711D7eFA7a287. LaunchDeployer CREATE2-deploys LaunchCurve and LaunchToken, so BOTH of their creation bytecodes are embedded in its own bytecode: changing LaunchCurve changes LaunchDeployer even though LaunchDeployer.sol is untouched, and the deployer is not upgradeable. Until this rotation the factory reported a three-way curve fee while the deployer it pointed at still produced pre-fund curves, so a launch created in that window would have split two ways and paid the LP fund nothing, silently. Caught by source verification, not by a test: Sourcify returned NO MATCH for the old deployer because its bytecode no longer corresponds to any compilation of current source. Curves already deployed are immutable and keep the split they launched on."
+  },
+  "susdaiGroup": {
+    "reserve": "0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2",
+    "reserveImplementation": "0xc1c9839a9ced09fa089a389d8e490800943c6cee",
+    "adapter": "0x460f319E43428387bff58ec262C992Ec7DA22fDc",
+    "hub": "0x740ddd200D9Ee605F25239Ba701bdd89161034b1",
+    "hubChainId": 42161,
+    "hubNote": "REUSED from gen-5 unchanged - it is a plain Ownable contract on Arbitrum with no dependency on the Robinhood-side addresses. Only setHomeReceiver had to be re-called to point it at the new adapter.",
+    "hubOwner": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9",
+    "hubOwnerNote": "MOVE TO A MULTISIG. This is the one authority with nothing behind it.",
+    "keeper": "0x467Ca912943e85A0B0e72B7E1190129762481EEC",
+    "homeReceiverWired": true,
+    "operationalNote": "OPERATIONAL, unlike gen-5. All three limits were set directly by the owner EOA in one transaction each, which is the whole reason for this redeployment. Whether the group is still operational is a question about live state - reserve not paused, adapter bound, reserve approved on the factory - and is answered by deployments/mainnet-state.json, not by a boolean here.",
+    "limits": {
+      "liabilityCapNote": "10,000,000e6 USDG. Raised from 100,000e6 on 2026-09-18 (tx 0x8cfab6da...7a33) after the original canary ceiling was reported as blocking deposits. NOTE: zero does NOT mean 'off' here - SharedReservePool skips the cap check entirely when it is zero ('Zero preserves legacy unlimited pools'), so an unset cap is unlimited exposure, not a closed door; the ceiling was raised rather than removed for that reason.",
+      "redemptionFeeBpsNote": "0.20%, the mechanism that repays lossCarryforward from bridge and Curve costs. Raised from 14 to 20 on 2026-09-17 (tx 0x9cb48cd0...e707) to leave headroom over the modelled round-trip cost, so the first dearer-than-expected bridge does not need a parameter change. At zero these costs fall permanently on brand yield instead of being recovered. Contract ceiling is 1%. NOTE: every deploy script still defaults to 14 - a redeploy must pass REDEMPTION_FEE_BPS=20 explicitly or it will quietly regress.",
+      "maxBridgeAmountNote": "10,000,000e6 per single adapter bridgeOut, raised from 5,000e6 on 2026-09-18 (tx 0x5fbedf06...06fe). This one IS fail-closed at zero - bridgeOut reverts BridgeAmountAboveCap. It is no longer the binding limit: bridgeBudget below and the 10% local buffer floor are what actually size a leg.",
+      "hubMaxBridgeAmount": 10000000000000,
+      "hubMaxBridgeAmountNote": "The Arbitrum hub's OWN cap, on the homeward leg. It was 0 until 2026-09-18 (tx 0xd7d59593...f766e), which meant bridgeHome reverted BridgeAmountAboveCap and value could cross to Arbitrum but not come back. Earlier revisions of this manifest recorded 5,000e6 under parameters.susdaiHubMaxBridgeAmount; that value was set on the adapter, never on the hub.",
+      "bridgeBudgetNote": "RSV-004: maxBridgeAmount bounds ONE deposit and nothing bounded N of them. Raised from 20,000e6 to 10,000,000e6 per rolling day on 2026-09-18 (tx 0x6e29c79d...25aa) so the whole reserve can cross immediately. The hub's equivalent, swapBudgetPerWindow, was raised to the same figure on the same day (tx 0x723f818e...a6dd); every buyShares, sellShares and bridgeHome draws on it. With both budgets above the position, the binding outbound limit is now the 10% minLocalBufferBps redemption floor, and the binding limit on one Curve swap is the pool's depth: measured 2026-09-18, 250,000e6 clears the 15 bps NAV floor and 500,000e6 does not.",
+      "limitsNote": "The Robinhood-side numbers are gone from this file. liabilityCap and redemptionFeeBps on the reserve, and maxBridgeAmount, minLocalBufferBps, bridgeBudgetPerWindow, bridgeWindow and the remaining budget on the adapter, are all owner-settable and all read into deployments/mainnet-state.json. The notes below are kept because they record WHY each value is what it is, which no generator can recover. hubMaxBridgeAmount stays a hand-maintained number because it lives on Arbitrum (chain 42161) and the generator only reads chain 4663."
+    },
+    "adapterImplementationNote": "REMOVED. This key held 0xef77e9790b60c2c6ac3b94ca862543fdafff9c61 while discovery.groups[1].yieldSourceImplementation held 0x15456BA172184DB87333022BF01a7c529C6ED159 for the same proxy - one file, one contract, two answers, and the one here was the pre-upgrade value. The proxy's ERC-1967 slot reads 0x15456BA172184DB87333022BF01a7c529C6ED159, which deployments/mainnet-state.json now reports for this and every other proxy. Recording an implementation address twice by hand guarantees exactly this outcome, so it is recorded here zero times.",
+    "homeReceiverWiredNote": "SUSDaiHub.homeReceiver on Arbitrum (chain 42161) points at the adapter above. Hand-maintained because the generator reads chain 4663 only; re-read it against Arbitrum before the first keeper run rather than trusting this flag."
+  },
+  "integrations": {
+    "usdg": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+    "morphoBlue": "0x9D53d5E3bd5E8d4Cbfa6DB1ca238AEA02E651010",
+    "morphoMarketId": "0xc845da65a020ddca5f132efa8fea79676d8edfdea504226a4c01e7a9e34cddd6",
+    "morphoUtilizationAtDeployBps": 9006,
+    "uniswapV4PoolManager": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+    "uniswapV4PositionManager": "0x58daec3116aae6D93017bAAea7749052E8a04fA7",
+    "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+    "referenceEquity": "0x4a0E65A3EcceC6dBe60AE065F2e7bb85Fae35eEa",
+    "arbitrumUsdc": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+    "susdai": "0x0B2b2B2076d95dda7817e785989fE353fe955ef9",
+    "curveSusdaiUsdc": "0xa7CF5543a27BaDC3a74d51EA0A02E84799140E4E",
+    "arbitrumSpokePool": "0xe35e9842fceaCA96570B734083f4a58e8F7C5f2A",
+    "robinhoodSpokePool": "0xD29C85F15DF544bA632C9E25829fd29d767d7978",
+    "integrationsNote": "All asserted against the live chains by PreflightMainnet.s.sol immediately before deployment: PASSED."
+  },
+  "parameters": {
+    "susdaiHubMaxBridgeAmountNote": "MOVED to susdaiGroup.limits.hubMaxBridgeAmount, which is its one home. This key held the same Arbitrum-side number and the two drifted: an earlier revision recorded 5,000e6 here while the value had been set on the adapter and never on the hub, so bridgeHome reverted BridgeAmountAboveCap and value could cross to Arbitrum but not come back. One number, one place.",
+    "parametersNote": "Every Robinhood-side parameter that used to sit here - protocolBpsOnYield, paidToLpsBps, protocolFeePipsOnTrading, rewardsDurationSeconds, minObservationCardinality, susdaiLiabilityCap, susdaiRedemptionFeeBps - is owner-settable and is now read from chain into deployments/mainnet-state.json (gen6.factory and gen6.reserves). They were duplicated here and under susdaiGroup.limits, which is how susdaiHubMaxBridgeAmount came to record a value that had been set on the adapter and never on the hub. The economics still match gen-4's shipped shape in one respect worth stating, because it is a design decision rather than a parameter: the buyback is gone, and float yield streams entirely to LPs via BrandFeeVault -> LpRewardDistributor. The per-pool trading skim is bound one-shot at market creation, so deployments/mainnet-state.json reports it per pool rather than as one protocol-wide rate.",
+    "equityVerification": "ACTIVE",
+    "equityVerificationNote": "A design posture, not a parameter: the factory holds the EXTCODEHASH of a canonical tokenized equity and stamps `verified` onto each market it opens. Per-market results are in deployments/mainnet-state.json (gen6.markets[].verified)."
+  },
+  "cost": {
+    "currency": "ETH",
+    "robinhoodTotal": 0.01259,
+    "arbitrumTotal": 1.1e-05,
+    "measuredBy": "Deployer balance delta across the v6 sequence. RH 0.028912055149313 -> 0.016318682589153106 across three broadcasts plus six owner calls; ARB 0.018944771461472 -> 0.008943549950478 (includes the setHomeReceiver call and Arbitrum's L1 data component).",
+    "note": "Higher than gen-5's 0.00263 because gen-5's figure excluded the sUSDai group's configuration calls, which it never made."
+  },
+  "openItems": [
+    "The platform is OPEN. The next launch is a human action. Until the keeper runs, the sUSDai-backed quote brand earns no yield and redemption costs 20 bps.",
+    "THERE IS NO TIMELOCK. One key owns every proxy, every beacon, the guard and the treasury. Deploy a TimelockController and a multisig and transferOwnership before third-party deposits.",
+    "Move the guardian off the deployer key - it is currently the same key it is meant to check.",
+    "Move the Arbitrum hub owner to a multisig.",
+    "Prove one controlled Across round trip with the keeper (DRY_RUN=true first) before float accumulates.",
+    "Keeper 0x467Ca912...1EEC funding: verify it still holds gas on both chains before going live.",
+    "Gen-4 is unwound: all 5 LP positions burned to zero liquidity and the deployer's brands redeemed 1:1. The residual in the gen-4 reserve is third-party brand supply and stays redeemable; see deployments/mainnet-state.json under gen4. Gen-5 held nothing and needed no unwind.",
+    "Regulatory counsel on float interest funding LP rewards has not been obtained.",
+    "Morpho USDG/USDe utilization was 90.06% at gen-5 deploy. _recallIfNeeded reverts at 100% and there is no idle-buffer policy.",
+    "web-stable/.env.local still points at gen-4 and has NOT been touched - it is a protected file.",
+    "MarketRouter was never upgraded on gen-6, so sellForUsdg is source-only and absent from chain while docs describe it as a 0x entrypoint. Either upgrade the router or withdraw the claim before the aggregator handoff. Verify with deployments/mainnet-state.json (gen6.selectorPresence), not by reading src/.",
+    "The Morpho-backed reserve 0xdB485351d953F10FAA7c820B7648f6E91d9Cd9F3 reports 1.000324 USDG withdrawable from its adapter against 1.000000 USDG of pooled supply, recorded at block 67305206. Stated, not assessed.",
+    "DO NOT UPGRADE THESE TWO BEACONS: 0xF360132A1156f9E7843001F83F78768a29A772Ad and 0x422E356fb62852D4D24D457991BBc1D777ab2Db4. They are orphans. Both are live UpgradeableBeacons on 4663, owned by the deployer, with their own distinct implementations (0xFf1fBcdd and 0xB8C3724c), and AssetMarketFactory.beacons() references neither. An upgradeTo aimed at either one succeeds, emits Upgraded, costs gas and moves zero live markets - which is worse than a revert, because it reads as a completed upgrade. This file listed them as the live feeVault and lpDistributor beacons until 2026-09-19, so anyone working from an older copy of it, or from a doc written against one, will aim at the wrong pair. The real beacons are 0x65876276feE875e1A120F63575150593E6AEa0d3 and 0xb6b86f5A01d8c04f68f827532C8aCE9458Db57a6. Confirm the target against deployments/mainnet-state.json before any beacon upgrade: it stamps orphaned: true on these two on every run. Leaving them in place is fine; touching them is not."
+  ],
+  "abandonedGen5": {
+    "timelockController": "0x0f0595f1923928CB919B086E8A73A6B54889d22E",
+    "timelockMinDelaySeconds": 172800,
+    "stalePendingOperation": "An updateDelay(0) operation was scheduled on this timelock on 2026-09-16, executable 2026-09-18T18:47Z, as the cheaper alternative to redeploying. It was deliberately NOT cancelled: this timelock's only subjects are the gen-5 contracts, and all four were confirmed empty (reserve totalAssets 0, totalPooledSupply 0, factory marketCount 0, sUSDai reserve totalAssets 0). Executing it would set a zero delay on a timelock that guards nothing, so a cancel transaction would spend gas to protect empty contracts.",
+    "gen5Holdings": "None. Verified empty at gen-6 deploy: reserve totalAssets 0, totalPooledSupply 0, factory marketCount 0, sUSDai reserve totalAssets 0. Gen-5 is not covered by deployments/mainnet-state.json, because a generator that walks abandoned generations forever is a generator nobody runs; re-read those four values by hand if this ever matters again.",
+    "gen4Note": "Gen-4 is the one abandoned generation that ever held value, and it has now been unwound. An earlier revision of this line said it held ~362 USDG across 5 live LP NFTs; that was true when written and false after script/UnwindGen4Liquidity.s.sol ran. All five positions were burned - the PositionManager answers NOT_MINTED for each token id - and the deployer's brand balances were redeemed 1:1. What is left in the gen-4 reserve backs brand tokens held by third parties and stays redeemable, because SharedReservePool._redeem carries no whenNotPaused by design. Live figures, per position and per brand, are in deployments/mainnet-state.json under the gen4 key. Address book: deployments/asset-markets-mainnet-v4.json."
+  },
+  "discovery": {
+    "strategyGroupRegistry": "0xBd02B0f3253F31dD02A752582e7b8974589333f7",
+    "liquidityZapper": "0x6f67108e7716A1f00902Ed219B055633fB2FE8Fd",
+    "liquidityZapperNote": "Ownerless. It reads the factory the same way MarketRouter does, so every market that exists works with it immediately. Sells through the Uniswap v3 SwapRouter02 at 0xCaf681a66D020601342297493863E78C959E5cb2 for the ETH door; WETH (0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73) is read off that router rather than declared, so the wrapper it wraps into is by construction the one the router accepts.",
+    "registryNote": "Discovery directory only - each reserve pool stays authoritative for its own accounting and brand membership. Before it existed the app took the documented single-group fallback in market-core/src/strategy-groups.ts ('Null preserves the existing single-group deployment until its registry is deployed') and could see only the USDG reserve, which is why the stack worked without it.",
+    "groups": [
+      {
+        "id": "keccak256('market-usdg')",
+        "name": "USDG market reserve",
+        "strategy": "Morpho Blue USDG/USDe - Robinhood Chain",
+        "reservePool": "0xdB485351d953F10FAA7c820B7648f6E91d9Cd9F3",
+        "yieldSource": "0x8e4E5e5EE25DF4721D845600F82bf2Bca48Fa358"
+      },
+      {
+        "id": "keccak256('susdai-usdg')",
+        "name": "sUSDai reserve",
+        "strategy": "sUSDai on Arbitrum via Across - keeper managed",
+        "reservePool": "0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2",
+        "yieldSource": "0x460f319E43428387bff58ec262C992Ec7DA22fDc",
+        "activeNote": "Activated 2026-09-17 (tx 0x88a93ccd...ab0d) because the quote brand lives on this reserve and an inactive group is hidden from the application, which would have left the brand unreachable in the UI. See backingCaveat: active means discoverable, not yield-bearing."
+      }
+    ],
+    "sharedFactoryNote": "Both groups name the same AssetMarketFactory and MarketRouter. That is correct, not a copy-paste error: _validateMarketStack accepts a stack that serves a reserve either by defaulting to it or by having approved it, and setApprovedReservePool(sUSDai, true) was called at deploy.",
+    "groupsNote": "Address book only. Each group's live `active` flag, its registered reserve, asset, yield source, factory, router and zapper, and the yield source's current implementation, are read from StrategyGroupRegistry into deployments/mainnet-state.json (gen6.strategyGroupRegistry.groups). `active` means discoverable by the application, not yield-bearing - see launchpad.quoteBrand.backingCaveat. The sUSDai group was activated on 2026-09-17 (tx 0x88a93ccd...ab0d) because the quote brand lives on that reserve and an inactive group is hidden from the UI, which would have left the brand unreachable.",
+    "strategyGroupRegistryOwnerNote": "Intended owner. The live owner and any pending nomination are in deployments/mainnet-state.json."
+  },
+  "explorerVerification": {
+    "route": "Sourcify, not Blockscout directly",
+    "why": "robinhoodchain.blockscout.com serves its API behind a Cloudflare interactive JS challenge, so forge verify-contract --verifier blockscout receives an HTML challenge page and fails to deserialise it. An API key does not help; it is a bot challenge, not an auth failure. Driving it from a real browser clears the challenge but then hits a hard per-IP rate limit. Sourcify supports chain 4663 natively, has no challenge, needs no constructor arguments because it matches on bytecode plus embedded metadata, and Blockscout imports Sourcify matches - so publishing there is what makes source readable in the explorer.",
+    "command": "./script/verify-mainnet-sourcify.sh",
+    "statusCommand": "./script/verify-mainnet-sourcify.sh --status",
+    "idempotent": "Each target is checked first and skipped if already matched; re-running is free.",
+    "status": "ALL 21 mainnet targets verified on Sourcify as of 2026-09-19, including every implementation deployed by this release. Re-check with ./script/verify-mainnet-sourcify.sh --status.",
+    "doublesAsADriftCheck": "Verification is a bytecode-drift detector, not paperwork. A contract whose on-chain code no longer corresponds to current source returns NO MATCH, which is exactly how the stale LaunchDeployer was found. Re-run ./script/verify-mainnet-sourcify.sh --status after any change to src/ and treat a new NO MATCH as a deployment that needs redoing."
+  }
+}

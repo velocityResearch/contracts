@@ -1,0 +1,158 @@
+{
+  "status": "live",
+  "purpose": "Public deterministic dual-chain sUSDai integration fixture",
+  "deployedAt": "2026-09-14T17:10:08Z",
+  "deployer": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9",
+  "sourceCommit": "a4f529b",
+  "sourceState": "Deployed from the uncommitted integration-hardening working tree. sourceSha256 is authoritative.",
+  "webDeployment": "deployments/susdai-web-testnet.json",
+  "warning": "All bridge, USDai, sUSDai, Curve, USDC and USDG assets in this fixture are public faucet mocks with no monetary value. Testnet-only constructors reject production chain IDs.",
+  "home": {
+    "chainId": 46630,
+    "network": "Robinhood Chain testnet",
+    "rpcUrl": "https://rpc.testnet.chain.robinhood.com",
+    "explorer": "https://explorer.testnet.chain.robinhood.com",
+    "existingMarketDeployment": "deployments/asset-markets-testnet.json",
+    "contracts": {
+      "usdg": "0x2c6E2A455688Ce9a4ba85D7bf90eBe9b7acC190D",
+      "primaryReserve": "0x2AdDa68Ee81b87d04Dcf6d2590d0C8D9f366369F",
+      "primaryReserveImplementation": "0x0fCE8c3A80652D69F6077bA70Fc33bb272989123",
+      "primaryFactory": "0x84C4Fb1873413029e02140c847DC117667D784B7",
+      "primaryRouter": "0x1830757b128B8034dABE9feC0BE62A295b2049d7",
+      "protocolGuardImplementation": "0xeae533124619048cdf4188c5fb97bd81baa38096",
+      "protocolGuard": "0x0a1407b7802b59dc075f97e5fc7f32c6ba4b56a4",
+      "brandTokenImplementation": "0x5cddc1fa822da6a1ca6285b5059c3ccc1fd128e8",
+      "brandTokenBeacon": "0x73ee5cf5d824bece426f58f684b296a9d6156bec",
+      "treasuryImplementation": "0x27f69301a33945d401ee100db14ca88d2de8efb7",
+      "treasuryBeacon": "0x7d527f72a9966c712fb36656ed796567a963b568",
+      "feeVaultImplementation": "0x8dd3bb0eb2fbde1b1a88e94447bb78bb41fc028c",
+      "feeVaultBeacon": "0x64619027bb32b8395e3c5a5ac09ce2aac584a826",
+      "buybackEngineImplementation": "0xd4938b9a22e10bbec3df14fa2a8ca8de900d8940",
+      "buybackEngineBeacon": "0xf49a30430744a1cf694226e4ce94d95d883fc911",
+      "assetLockboxImplementation": "0x5061ec2382bfcfca3a30d88782461050f2a33232",
+      "assetLockboxBeacon": "0xe450e89ab08d7560fc8bc75d30a1bca265bed7a5",
+      "mockSpokePool": "0xf1d280b13b2D2fa70138d8e6Bc076877037e3680",
+      "yieldSource": "0x41500eebB6794A7F53f5126E2b135BD2e37d1314",
+      "reserveImplementation": "0xc892054a66bf49d4789e9983329e83ea76d270f9",
+      "reserve": "0x432dd3494cA586aF79577f80e5DD3D0959AEd734",
+      "strategyGroupRegistry": "0x2cEe4dD66FC7b486111048dEfd0f28675F3e0100",
+      "sampleStandaloneBrand": "0xD862Fb56A36a8a18E33ADA60fF078C4C98e23565"
+    },
+    "strategyGroups": {
+      "market-usdg": "0xbbdd468dab82871aaecbf3b017729233e931b457bb4ce0db91ffd0ff31fee24d",
+      "susdai-usdg": "0xa30ff48969a3ce14dddce575f3cf04b331df360a6981eb72d012aeb30da6d43d"
+    },
+    "limits": {
+      "liabilityCap": "100000000000",
+      "maxBridgeAmount": "5000000000",
+      "redemptionFeeBps": 14
+    },
+    "primaryReserveUpgrade": {
+      "implementationDeploymentTransactionHash": "0xefa5a28c8dc20e7d77c8eb6217df9c2a2264851d51fb1e92a51949f4324e6270",
+      "proxyUpgradeTransactionHash": "0x71a79fbe7e445e0b955144e345299c8c81c357354cdb77ba084c6f24db48fada",
+      "liabilityCap": "0",
+      "redemptionFeeBps": 0,
+      "note": "Upgraded the existing testnet primary reserve to the audited source revision so every registry group exposes the same health interface. Existing asset, yield source, supply and market bindings were preserved."
+    },
+    "deploymentTransactionHashes": [
+      "0xa985bbc97b6ea44bac9be1ee8f8afb69190ccea725abb39ee96790f179abf045",
+      "0x24c1e1226ac4bcf9afd68990fc4794a4380563aede462bd4e72dc5f2ddad93cf",
+      "0xfd42e91da89ab09a862ac6fcf013952ef64f51a1369074bc60702d8a62681e0c",
+      "0x349d49b4ae06431ff5393fecaa49819fe50387dba4daf2930471cac6408221b9",
+      "0x5d0653d83c1cad5b8473fed1bfcd96ded3799a5412ecffcb2250c5c30edb1741",
+      "0x6b9e847df3c9991b2c236ada229c325613eb16024e75d1cd1a82d27929353450",
+      "0x2de50a3f5f1e65180f6728f38f799ebbf0be401c5e443e9d5a8304417b623794",
+      "0xcf9507c4ff4561d5ee8048f4392addabaaaa97167118a73c5851266793c81a38",
+      "0x90e4325c86b621a9bcc3f07fa3090fe0f235b020cc097c263f2b53889e70cbc7",
+      "0xad47cae62507de70a40d71dba781c5c13e37a848dad2e912a19f4324712cc965",
+      "0x412bfe7f889429f12989bdfeca1fe305bd081eea980bd42566951bce383e1130",
+      "0x16204845d076be8f10845ea32f31e75026afe9ac1f1c36391d010f34d7f5247b",
+      "0x69820c31c9bf49bf1852cc49c798ebeb428450626ceec343bd54b5e703bafd57",
+      "0x20f1c971e6d6fdccb008690555757dcaba7524d8e097bf863b2fd98069e543cc",
+      "0x55519e21fab6aae5fedfb5b8966a0deaf941c8ad9b0a4124fa6e8d9ad8c3d608",
+      "0xd942b226ec8d2c9e951cb074562c0f62b566f743f3b075f4716bba7f2c63a155",
+      "0x0574d3bcda1b5bba2e3b4afbaa5a6d3eba2508c956eee1ab29d2cbbacb8456f7",
+      "0xcaca1c19e9178149abfc55c90619a77d046bffa6c0b07d43e6484ebefc2d5542",
+      "0xdba2ea47d5ae90e71566896fe488783d5917b13e410fac5b11b548c38370402c",
+      "0xfe47042615d687a1504e844c64669ca5788cb5f510756bfd1f49a823e45ba542",
+      "0x67c380a472e47bd492913ce204351d193104fe053405dcb3c97fe87b7e67bc77",
+      "0x0bcfe33053c7f1c6f55e0a1201141ab13f9da2f3f7c39d84f53f4130b1c78d7b",
+      "0x961357563b9acfe7071f12f574b02bfae2d20487f0e55209de7f1412b5965e26",
+      "0x4a940486692c1d862477b8d138cf25600b2a4c84e47aa3b18a99477f14c5fd29"
+    ]
+  },
+  "remote": {
+    "chainId": 421614,
+    "network": "Arbitrum Sepolia",
+    "rpcUrl": "https://sepolia-rollup.arbitrum.io/rpc",
+    "explorer": "https://sepolia.arbiscan.io",
+    "contracts": {
+      "usdai": "0xb45c359193DF6982Ed1CBb456A753B772062633e",
+      "usdc": "0x740ddd200D9Ee605F25239Ba701bdd89161034b1",
+      "susdai": "0xB895Bd5e145f0C2cE6668cf5DD93EC4a312d90B6",
+      "curve": "0x58C1f54212224d0027F3d52408B8231DE420F510",
+      "mockSpokePool": "0x13D677eC1dE91EA744f5297D0f42B3e4ae17Bc49",
+      "hub": "0x4FDC2372831A1A47aB37CD61700505Eb4Ad7D582"
+    },
+    "limits": {
+      "maxBridgeAmount": "5000000000"
+    },
+    "deploymentTransactionHashes": [
+      "0x4fb52e6d9027c9fd6b7ef221a401e967c28718008bdc0737c91ff245abc36d4d",
+      "0x1709c01106ceec92fe2bd30a9f2de1ee246f3b774630d277234a1e5152454935",
+      "0xe4974b57cdaa7049a53618aca643e54f1810e92e58aa7a158b260c1a4791672c",
+      "0x762b915316b126daed4083412b78084aad6e8f85be0e17c0ad9c3d37b817b696",
+      "0x4f73f79d764220fc5aeeb3eb3858352702240fe7a022fcd0241a6c264597e36b",
+      "0x6018cbe5269fba10f7ed7e7dfb5b5b0d6440b4e38d6a9158a6996dac77fe759a",
+      "0xfe28668a9c54f80e429e883d57dcd76f2e133cc4f56a63c709b0441801b42c3f",
+      "0xaa72ee0498d93348fd28f145bc387c21ba92d6d69e449ce2f4d9d18f506eb104",
+      "0x1bfb2254f07d2dfe6fe5284f279137f87b01b1e9aef14621757cbacaad8c22c8",
+      "0xb88405b1c807f44c10a267aa3b456bee492c268ecb88d73ebe863ae54bafaa10"
+    ],
+    "homeReceiverConfigurationTransactionHash": "0x244149ce359003ac038f39f21ba04a8c265d07f1e4b4916d57d291febff900f2"
+  },
+  "smoke": {
+    "completedAt": "2026-09-14T17:39:51Z",
+    "behaviors": [
+      "Minted 100 tsUSDa from 100 tUSDG on Robinhood testnet",
+      "Redeemed 10 tsUSDa with the exact 14 bps fee-aware minimum output",
+      "Bridged 50 tUSDG to Arbitrum Sepolia through the mock Across event surface",
+      "Relayed 49.95 tUSDC to the hub and bought mock sUSDai shares",
+      "Sold 10 mock sUSDai shares and bridged 9.99 tUSDG of liquidity home",
+      "Settled outbound and inbound in-flight accounting to zero",
+      "Upgraded the existing primary reserve in place and verified its asset, yield source, supply, factory and router bindings"
+    ],
+    "transactionHashes": {
+      "approve": "0xc0ac908077d5d4c128d521b4fa9abce0da952abfe5c48aed9d2d9af5ba7499f7",
+      "mint": "0x2f76dc168077cba30d1738154303e60ac4c39366fcbd2392bd93887b4a48d543",
+      "redeem": "0xd553428677368cddaf7bf94cfd2a9c3364f1cd1f46eda88c4d5560e97d2974bc",
+      "bridgeOut": "0x39fd98b797ec5db7412bed9156e2cd38d6b80299c1e86eefce9d23c277d5d3f1",
+      "relayOutbound": "0xbcfcf7441dcf6cd041027f12a514801257af215f2ab178e9ae56be8922ee97f1",
+      "buyShares": "0x93a6978dd9090b046855d52564ff14d21b0c2e0bacf57e347f0c8e6c84aa1d92",
+      "sellShares": "0x70aaffa0d76608ca684eb888fb5821c0bf05aa6bd262cab24f953f25d461d90d",
+      "bridgeHome": "0x42204b03e9df38b39bec0bbdc5d4cbdb01b3f739df3837f596d17eee01f7a9e4",
+      "relayInbound": "0x7442e57cb9fdf50dc1697fd24f785212fc7c314849079050ffc49da95416e616"
+    },
+    "finalObservedState": {
+      "sampleBrandBalance": "90000000",
+      "totalPooledSupply": "90000000",
+      "reportedTotalAssets": "89721982",
+      "availableHomeLiquidity": "50003999",
+      "reportedRemoteValue": "39717982",
+      "actualRemoteConservativeValue": "39766882",
+      "outboundInFlight": "0",
+      "inboundInFlight": "0",
+      "note": "The keeper intentionally under-reported 48,900 units of remote surplus so the configured per-day growth cap remained binding during the immediate smoke test. A later keeper report can recognize it gradually."
+    }
+  },
+  "sourceSha256": {
+    "src/testnet/SUSDaiTestnetMocks.sol": "6a9bec520869b754e68dce469d71e260f400c43643f2c7dca05da63db307296b",
+    "src/susdai/SUSDaiHub.sol": "691681d5f9c3122c98490012e66e31ed79a60f69ee55ff35581fa3e608793fb5",
+    "src/yield/SUSDaiYieldSource.sol": "60bca343640e2a8596b14658dc4b59866dfc9d0fa88a281df682107c22dc174e",
+    "src/pool/SharedReservePool.sol": "b295360796a614ac8b2986f25d5c14299621891b3d3e54603203ed3873c05cf8",
+    "src/registry/StrategyGroupRegistry.sol": "5b8f8106960d78385d30e8313ddb180b0fdd4ca1b5f0f72171527a6d1d6296d3",
+    "script/DeploySUSDaiTestnetRemote.s.sol": "565061be0feb367d2cfd57d084a626ef0f7372b88b230f596e1e7d53c220dfc0",
+    "script/DeploySUSDaiTestnetHome.s.sol": "aee334f417a0a4154ba5f3a16d7701dc27352a1a655bdbd850aee4cfedae3467",
+    "script/ConfigureSUSDaiTestnetRemote.s.sol": "fde6c104cc7ee9a8c93506ffd7b89561045caefd5b38a7db06fbc6fa40387026"
+  }
+}

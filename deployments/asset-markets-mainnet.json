@@ -1,0 +1,122 @@
+{
+  "chainId": 4663,
+  "network": "Robinhood Chain mainnet",
+  "rpcUrl": "https://rpc.mainnet.chain.robinhood.com",
+  "explorer": "https://robinhoodchain.blockscout.com",
+  "deployedAt": "2026-09-09T12:38:50Z",
+  "stale": true,
+  "generation": "buyback-and-lock; liquidity-seconds leg weighting; splitter creation code in SplitterDeployer",
+  "deployer": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9",
+  "sourceCommit": "39bd48a4e2403141364013b48134ca85e5b89020",
+  "sourceCommitNote": "src/ was clean against this commit at deploy time, so the commit is the authority for every deployed contract. script/DeployAssetMarkets.s.sol carried uncommitted COMMENT-ONLY edits (the EIP-170 note, corrected after SplitterDeployer landed); no code path differed. Verify against sourceSha256 rather than a checkout if in doubt.",
+  "recordProvenance": "Step 2 is transcribed from broadcast/DeployAssetMarkets.s.sol/4663/run-latest.json. Step 1's broadcast file was deleted from disk shortly after the deploy by a concurrent session, so its three entries were rebuilt from `cast receipt` against mainnet. Every address, block and gas figure below was read back off chain 4663 and matches.",
+  "contracts": {
+    "morphoBlueYieldSource": "0x1026D55461a100f7397e381087F67723E9A46e8c",
+    "timelockController": "0x71300c2D29e5d218f17c16F377D3e8C1469405db",
+    "sharedReservePool": "0xF35c06972Ea8c3A06b889A8da4Ae435960248874",
+    "splitterDeployer": "0xa829331102fBF485257861f2A72dBFAeEe455912",
+    "assetMarketFactory": "0x3c234C03d7C07b64B77D6bD4a7Af864b294fff4b",
+    "marketRouter": "0x60A3fE9599D476AA2723a3c7CeAAf787F3ce5972"
+  },
+  "integrations": {
+    "usdg": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+    "morphoBlue": "0x9D53d5E3bd5E8d4Cbfa6DB1ca238AEA02E651010",
+    "morphoMarketId": "0xc845da65a020ddca5f132efa8fea79676d8edfdea504226a4c01e7a9e34cddd6",
+    "uniswapV3Factory": "0x1f7d7550B1b028f7571E69A784071F0205FD2EfA",
+    "positionManager": "0x73991a25C818Bf1f1128dEAaB1492D45638DE0D3",
+    "swapRouter02": "0xCaf681a66D020601342297493863E78C959E5cb2",
+    "referenceEquity": "0x4a0E65A3EcceC6dBe60AE065F2e7bb85Fae35eEa"
+  },
+  "parameters": {
+    "protocolBps": 0,
+    "buysBackAndLocksBps": 10000,
+    "protocolTreasury": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9",
+    "factoryOwner": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9",
+    "reservePoolOwner": "0x71300c2D29e5d218f17c16F377D3e8C1469405db",
+    "timelockMinDelaySeconds": 0,
+    "buybackMinNotional": 100000000,
+    "buybackMinIntervalSeconds": 21600,
+    "buybackTwapWindowSeconds": 1800,
+    "buybackMaxSqrtDeviationBps": 200,
+    "equityVerification": "ACTIVE"
+  },
+  "openBlockers": [
+    "TIMELOCK DELAY IS ZERO. The reserve pool's owner is a TimelockController with minDelay 0, so it is not a timelock: a leaked deployer key can redirect the pool's entire reserve to a malicious yield source in one transaction, with no window for anyone to react. Deployed this way deliberately on the operator's instruction. Raising it is cheap and can be done now; lowering it always costs the current delay. Do this before real float arrives.",
+    "Regulatory counsel on the buyback shape has not been obtained. ASSET_MARKETS.md section 10 flags 'float interest funds a buyback of a token' as closer to the line than a plain 1:1 peg.",
+    "Morpho USDG/USDe utilization was 90.3% at deploy. SharedReservePool._recallIfNeeded pulls from Morpho on demand and reverts at 100% utilization. The pool has no idle-buffer policy.",
+    "Contract verification on the block explorer is untested; the Blockscout instance sits behind Cloudflare and nothing has been verified through it."
+  ],
+  "markets": [],
+  "marketsNote": "None yet. registerBrand and openMarket are separate calls and openMarket is restricted to the brand's operator. A four-market launch (BONER, ZZZ, AI, MEME) was rehearsed end to end on a mainnet fork in test/markets/MainnetLaunchFork.t.sol before this deployment.",
+  "totalGasUsed": 12348895,
+  "blockRange": [
+    58505341,
+    58506534
+  ],
+  "transactions": [
+    {
+      "step": 1,
+      "contract": "MorphoBlueYieldSource",
+      "address": "0x1026D55461a100f7397e381087F67723E9A46e8c",
+      "tx": "0xa5e975448aadacf331e296bd0dd92c38312be36cf41ed29397734cceed123f73",
+      "block": 58505341,
+      "gasUsed": 728427
+    },
+    {
+      "step": 1,
+      "contract": "TimelockController",
+      "address": "0x71300c2D29e5d218f17c16F377D3e8C1469405db",
+      "tx": "0x504a2955b9bd2781bce4338ef8679995e876cdc2fa10856542b00097f2bdaa53",
+      "block": 58505363,
+      "gasUsed": 1360527
+    },
+    {
+      "step": 1,
+      "contract": "SharedReservePool",
+      "address": "0xF35c06972Ea8c3A06b889A8da4Ae435960248874",
+      "tx": "0x17c1bcf11eb87b15af19afda04048dc21a60b15535424e8396f29478f5dacb18",
+      "block": 58505385,
+      "gasUsed": 2601755
+    },
+    {
+      "step": 2,
+      "contract": "SplitterDeployer",
+      "address": "0xa829331102fbf485257861f2a72dbfaeee455912",
+      "tx": "0xa13601e993ee492482415f257810f32e022a8686908f74f3f6a248005efdda3f",
+      "block": 58506493,
+      "gasUsed": 4027727
+    },
+    {
+      "step": 2,
+      "contract": "AssetMarketFactory",
+      "address": "0x3c234c03d7c07b64b77d6bd4a7af864b294fff4b",
+      "tx": "0x8c3841619cbf9a7ce717f37c4cafc65c4720d28430c219202fe5c26ecf3f4fcd",
+      "block": 58506513,
+      "gasUsed": 2072475
+    },
+    {
+      "step": 2,
+      "contract": "MarketRouter",
+      "address": "0x60a3fe9599d476aa2723a3c7ceaaf787f3ce5972",
+      "tx": "0x27164cf13100a0a1985b95e1c476e4a21e42bd9901095d87904563bac9930100",
+      "block": 58506534,
+      "gasUsed": 1557984
+    }
+  ],
+  "sourceSha256": {
+    "src/pool/SharedReservePool.sol": "a4512cbd4dcd43b62d4413061e46e2fd176096f96f91cd00cfb6b48838b091de",
+    "src/pool/PooledBrandToken.sol": "3eaae6227cf2b675a583357c999bea5317ebfe5115eb882b3d767b37b5dd01c1",
+    "src/pool/PoolBrandTreasury.sol": "2904014f1af52bb72facfcfdb492460156d63f66fedca117251c754902172f58",
+    "src/yield/MorphoBlueYieldSource.sol": "a4e01cd2bf5069fb012611c4a070aaf834472f29632704d80c3947ada99c6a8d",
+    "src/markets/AssetMarketFactory.sol": "a772ec2749183d2ff55e037cf5c50f22e412bd267f7cae5272994c61a0f5714a",
+    "src/markets/MarketYieldSplitter.sol": "d795bad6164ba5a2614166d3949fade132796f2abe42d3058a8e6d2523584d57",
+    "src/markets/BuybackEngine.sol": "1ad184348ba933ab72b66b8e0e94acb3b025210afe91e78ef2f5e291ce3394dc",
+    "src/markets/AssetLockbox.sol": "218a9eb8aed1715a5d3fc9055311e2c61220f998522c8c1f6ff1c3aedd462b82",
+    "src/markets/MarketRouter.sol": "18a2f5ae68a5e60ecc6bebf40c18d964204beff83728b774f12c3e77c7e8f1fe",
+    "script/MainnetAddresses.sol": "befe2982c03128300fb5e8fa8fb1a164cd6d7b0f3a2a2751833efe69229886ef",
+    "script/DeploySharedReservePool.s.sol": "4a69980adf591ce8dfd594b8a4f90927be27ac9a88e80992d2f9935d436eaf71",
+    "script/DeployAssetMarkets.s.sol": "0b3e7d603686a1c35d1d72744af6eb5d05d15ad610812e728a534fe952ab93d2"
+  },
+  "staleSince": "2026-09-09",
+  "staleReason": "The source diverged after this deployment. MarketYieldSplitter, SplitterDeployer and IYieldDestination are deleted and replaced by BrandFeeVault; a brand now gets exactly one market rather than many; BuybackEngine's constructor takes an eleventh argument (feeVault) and gained lockHeldAsset(); PooledBrandToken carries on-chain description/logo/socials and the factory derives the logo URL at registration; AssetMarketFactory.Market.splitter is renamed feeVault. A freshly built artifact is NOT interchangeable with what is deployed here. Nothing is stranded: this factory has no markets (markets: []) and the reserve holds nothing, so the next deployment should replace the stack wholesale rather than patch it. See ASSET_MARKETS.md sections 6 and 9."
+}

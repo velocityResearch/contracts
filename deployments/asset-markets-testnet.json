@@ -1,0 +1,82 @@
+{
+  "chainId": 46630,
+  "network": "Robinhood Chain testnet",
+  "rpcUrl": "https://rpc.testnet.chain.robinhood.com",
+  "deployedAt": "2026-09-15T07:05:00Z",
+  "generation": "multi-reserve v4: one factory and one router serve several reserves; same shape as the Base Sepolia upgrade and the pending mainnet pair upgrade.",
+  "supersedes": "the 2026-09-11T04:16:35Z stack (factory 0x84C4Fb1873413029e02140c847DC117667D784B7)",
+  "supersedesNote": "That stack carried the pre-multi-reserve `CreateParams` (nine fields) and single-reserve factory. This deployment runs commit 85cc900 or later and is the rehearsal for the mainnet factory+router pair upgrade that `RouterUpgradeMainnetForkTest` proves against live mainnet state. The old stack is abandoned, not migrated; testnet state is disposable by design.",
+  "deployer": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9",
+  "sourceCommit": null,
+  "sourceCommitNote": "Deployed from the working tree at cba3777 (offline and fork suites green at that commit). No contract source moved between the suite runs and this broadcast.",
+  "contracts": {
+    "usdg": "0x2Dd6f5e108DC2DF43789E98584E86cbfB141905d",
+    "asset": "0x3DB19983e7A59d9dA6ce462B1fe7872B5815614f",
+    "yieldSource": "0xa7a6cf19f5b0fE2fEED65Bfce3491F6B954DDe95",
+    "protocolGuardProxy": "0xa7D3dEd16C94f4fbab1FC24A0C6243043a67A804",
+    "protocolGuardImplementation": "0x6492C2E9340A6CC1B12963d4723d819af5B3Cc5F",
+    "feeHook": "0x99F431bee0D2BABECcD06a76d1C10886Aac040cC",
+    "feeHookImplementation": "0xa0CB829E3aD291aB4a3794E96A26FD8BD03FE455",
+    "feeHookNote": "A MINED proxy address: v4 reads a hook's permissions from its low 14 bits. The implementation behind it is upgradeable.",
+    "reserve": "0x1d02Af23335B021a14333209671fE891e83A8BE7",
+    "reserveImplementation": "0x95106c6424b81a8F45590FF64b31dDB40897DC2a",
+    "factory": "0x3Aa453371856e7B9Bc292fF08289C25624017A40",
+    "factoryImplementation": "0xfcc13e959E4e441f0D83Dd05B4DfaeA7Ce459be3",
+    "router": "0x078C985ea7DE982BE4e9C052d5861f67f82Da802",
+    "routerImplementation": "0x2E2234A309b6200BAA85A4A90D1F00BF35f6Ed3D"
+  },
+  "beacons": {
+    "brandToken": "0x15456ba172184DB87333022BF01A7c529c6eD159",
+    "brandTokenImplementation": "0x0C23b7628E1bfeD0b082447C0746c9760C386daE",
+    "treasury": "0x0cA0bADaFab3BC3C4932045e131f4B07b2B40e9d",
+    "treasuryImplementation": "0x579F64AefA201D1607aEe8C5A3a3B0b01F435928",
+    "vault": "0xECABc1E7653377BB764E4E49979F287378433E88",
+    "vaultImplementation": "0x579a565EA426E66e0457D0faB877969546F49dFc",
+    "engine": "0xB1e0ed28E24d3999216979847f9473b5c7BF12BA",
+    "engineImplementation": "0x1727FfB1f47c9FA3A25c3EA5DD34293EdA98f9dC",
+    "lockbox": "0xdA3c815C009a4Cc6F70505c5d9730E86d5585272",
+    "lockboxImplementation": "0x289cA214854658DB428190202376789264F68dE1"
+  },
+  "libraries": {
+    "MarketDeployer": "0x0b793dFbD7Ba04CF0c281B22FcDCf8B27A150875"
+  },
+  "uniswapV4": {
+    "poolManager": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+    "positionManager": "0x58daec3116aae6D93017bAAea7749052E8a04fA7",
+    "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+  },
+  "markets": [
+    {
+      "marketId": 1,
+      "brandName": "Test Market Dollar",
+      "brandSymbol": "tmUSD",
+      "brandToken": "0x5f63EC1f4c65Cc94505D4B1279663a9644bAE315",
+      "reservePool": "0x1d02Af23335B021a14333209671fE891e83A8BE7",
+      "seed": "10000 tASSET + 10000 tmUSD, LP NFT UNI-V4-POSM #4761"
+    },
+    {
+      "marketId": 2,
+      "brandName": "Orbit Dollar",
+      "brandSymbol": "orbUSD",
+      "brandToken": "0x19ce474EFB1B6555ee52A58E935a95b072cfaB79",
+      "reservePool": "0x1d02Af23335B021a14333209671fE891e83A8BE7",
+      "seed": "10000 tASSET + 25000 orbUSD at 2.5, LP NFT UNI-V4-POSM #4762"
+    }
+  ],
+  "lifecycleProof": {
+    "ranAt": "2026-09-15T07:12:00Z",
+    "note": "Full user cycle broadcast from the deployer key on this exact stack: create+seed (SeedAssetMarketsTestnet), buy, sell, and a par redemption. The buy pulled 10 tUSDG for 9.94 tASSET; the sell paid 99499 brand units for 0.1 tASSET (0.50% pool fee plus the 0.50% hook skim, matching the 1% headline); `SharedReservePool.redeem` returned exactly 99499 tUSDG at 1:1.",
+    "seedTransactions": [
+      "0x1b5452ea880fdbd319ca5de82a8e8ef295ef257db2fa4ffd221cd2982d1ec689",
+      "0xf6425a45a115acf78d8e674d9375e4a72a7857be55681e3e77af88618111e824",
+      "0x840687fa45c249f39e13a65b48bc9a488b6c0fd6ba2aaca443ac986a03ff9c82"
+    ],
+    "buyTransaction": "0x30ebdb9086c8588ebbadd5455ab05af1a6dbc83199344cdd124004731a1662eb",
+    "sellTransaction": "0xd07ac901ca64604a8585f83e5729630c87c54b5447b683bc5db79735156d2aa7",
+    "redeemTransaction": "0xfe268736ee32974cd68c06e5f25a20790a2ce0bbb04e6747492ca83f519cc693"
+  },
+  "notes": "Same architecture as mainnet v4 plus multi-reserve support: ERC1967/UUPS proxies for the singletons, an UpgradeableBeacon per per-market class, the hook's permissions carried in its mined address. The factory, router, reserve, hook, guard and every beacon answer to the deployer EOA rather than a timelock: this stack exists to be torn down and rebuilt. Every reserve here shares the same underlying (6dp faucet tUSDG); approval of additional reserves is exercised on Base Sepolia with the mock sUSDai group.",
+  "fixtures": "Faucet tUSDG (6dp) and tASSET (18dp) with unrestricted public mint, plus a transfer-funded simulated yield source. No mainnet assets, no real collateral. The deployer holds 1,000,000 of each; `AssetMarketTestYieldSource.simulateYield` funds yield by direct transfer.",
+  "verification": "All DeployAssetMarketsTestnet and SeedAssetMarketsTestnet broadcast receipts returned status 0x1. Runtime bytecode confirmed non-empty at every address above via eth_getCode at deploy time; implementation slots read back from the proxies match the CREATE list in the broadcast files. `test_theTestnetScriptProducesAUsableStack` passes against this chain's real v4 periphery, and the live buy/sell/redeem transactions above are the acceptance evidence.",
+  "frontendEnv": "web-stable/scripts/testnet.mjs generates NEXT_PUBLIC_* from this manifest. Run it after pointing the app env at these addresses; the QA wallet connector stays off unless QA_WALLET is enabled."
+}

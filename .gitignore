@@ -1,0 +1,14 @@
+# Foundry
+/out/
+/cache/
+/lib/
+/broadcast/**/dry-run/
+
+# Secrets. Nothing in this repository should ever need one, but a deploy run does.
+.env
+.env.*
+!.env.example
+
+# OS and editor
+.DS_Store
+*.swp

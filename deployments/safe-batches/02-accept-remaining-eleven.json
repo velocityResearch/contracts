@@ -1,0 +1,90 @@
+{
+  "version": "1.0",
+  "chainId": "4663",
+  "createdAt": 1789878734743,
+  "meta": {
+    "name": "Accept remaining 11 handles",
+    "description": "The rest of the two-step handles, including both reserves, the factory, the router and the fee hook. Import only after batch 01 has landed.",
+    "txBuilderVersion": "1.16.5",
+    "createdFromSafeAddress": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373"
+  },
+  "transactions": [
+    {
+      "to": "0xbE2fb491C37F19E723F86A8cAcA625B4Ba75a5E7",
+      "value": "0",
+      "data": "0x79ba5097",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0x2F26F8fE6c8f6BA3F72D062f1a4E64fFe596963C",
+      "value": "0",
+      "data": "0x79ba5097",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0x013D1974F8215a12280e6b9a33F9732277F38C0e",
+      "value": "0",
+      "data": "0x79ba5097",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0x8e4E5e5EE25DF4721D845600F82bf2Bca48Fa358",
+      "value": "0",
+      "data": "0x79ba5097",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0x460f319E43428387bff58ec262C992Ec7DA22fDc",
+      "value": "0",
+      "data": "0x79ba5097",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0x95fe000285DA7797cC01394cCc410628B26e898d",
+      "value": "0",
+      "data": "0x79ba5097",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0x7553919210B172438853C3694Fd88fAfD4bE3Eb4",
+      "value": "0",
+      "data": "0x79ba5097",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0xc9932584c5154e4F58313a2e5423522E74e540Cc",
+      "value": "0",
+      "data": "0x79ba5097",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0x22AA61c589B90731752236c07d1455D0065bfc79",
+      "value": "0",
+      "data": "0x79ba5097",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0xdB485351d953F10FAA7c820B7648f6E91d9Cd9F3",
+      "value": "0",
+      "data": "0x79ba5097",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2",
+      "value": "0",
+      "data": "0x79ba5097",
+      "contractMethod": null,
+      "contractInputsValues": null
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "chainId": 84532,
+  "network": "Base Sepolia",
+  "rpcUrl": "https://base-sepolia-rpc.publicnode.com",
+  "explorerUrl": "https://sepolia.basescan.org",
+  "deployedAt": "2026-09-16T02:00:00Z",
+  "generation": "Fresh Base Sepolia stack with launchpad integration. Deployed from branch work/overnight-usdcai-launchpad (based on feature/launchpad) via DeployBaseSepoliaLaunchpad.s.sol. The old deployment (factory 0x97e2...9a1E) is untouched but lacks positionManager/launchpad support due to a storage collision at slot 3.",
+  "deployer": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9",
+  "sourceCommitNote": "Deployed from the working tree on branch work/overnight-usdcai-launchpad. See docs/OVERNIGHT_AUDIT_2026-09-16.md for the full audit report.",
+  "contracts": {
+    "asset": "0x74A104D8984D43CE49Fb0c5AbcDa1D827B39e61E",
+    "yieldSource": "0x57ac948901E777455188f2d6F5e5C78F3d689dBD",
+    "guard": "0x77bCfA4D6d8f3444dCd27F721B9a13103F94AA01",
+    "feeHook": "0x986000Be73f1ccfe7cb2cd6D461Fd24c140780CC",
+    "reserve": "0x1852E4b4a25273663f5F5e4D609c15269005be04",
+    "factory": "0x013D1974F8215a12280e6b9a33F9732277F38C0e",
+    "router": "0xb2Dc3fdDBa4A892184947575430FDdB1DacC06B9",
+    "zapper": "0xf8b758dfb9d22448Ab13C7FcC1f23b75A998C34E",
+    "quoteBrand": "0x14aE8D97734ef39CB0563Ac2Cff12C49F4EF82bE"
+  },
+  "launchpad": {
+    "feeEscrow": "0xFf1fBcdd05E4E9A28B8760f6D39216A65C393661",
+    "factoryImplementation": "see broadcast/DeployBaseSepoliaLaunchpad.s.sol/84532/run-latest.json",
+    "factory": "0xB8C3724c697720BBede40c022660D116c2A3B9F2",
+    "graduationGuard": "0x265f14bE74E9552055E99C024ec76B3C79E38282",
+    "locker": "0x422E356fb62852D4D24D457991BBc1D777ab2Db4",
+    "launchDeployer": "0xE26E0c37A01942F91F43b98c20dF7D853D7933e8",
+    "graduation": "0x8e4E5e5EE25DF4721D845600F82bf2Bca48Fa358",
+    "router": "0xE8Ff05B14704eC9A3fb39959Fc40FDa482Ffe4b7",
+    "launchConfigId": 0,
+    "curveFeeBps": 100,
+    "protocolFeeShareBps": 3000,
+    "snipeTaxStartBps": 9900,
+    "snipeTaxSeconds": 15,
+    "graduatedCreatorShareBps": 7000,
+    "launchSupply": "1e27",
+    "poolFee": 5000,
+    "phantomQuote": "3236000000",
+    "graduationThreshold": "8090000000",
+    "launchFee": "1000000"
+  },
+  "beacons": {
+    "brandToken": "0x8d6C544575A29f828f349A9DC7Ae2449caBf8193",
+    "treasury": "0x4c9ddB7d742a4D1B4CAF31288D45A4F22d6D843b",
+    "vault": "0xeE66A9426aE82e4D61298c4112f889BBcD9Fbf99",
+    "distributor": "0x54720baFAa4217E26e8101Af5ed04EcE6442CFeb"
+  },
+  "uniswapV4": {
+    "poolManager": "0x05E73354cFDd6745C338b50BcFDfA3Aa6fA03408",
+    "positionManager": "0x4B2C77d209D3405F41a037Ec6c77F7F5b8e2ca80",
+    "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+  },
+  "smokeTest": {
+    "launchedToken": "0x12591088070ed2C929008E9DF3B2B1867921cB86",
+    "curve": "0xEFb96D8eb3d0227dB69545382dbE2EbE98879583",
+    "tokenName": "TestToken",
+    "tokenSymbol": "TST",
+    "result": "Launch + opening buy succeeded. Curve is live and trading. Snipe tax active (99% in launch second, decaying over 15s)."
+  }
+}
