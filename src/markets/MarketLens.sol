@@ -3,14 +3,15 @@ pragma solidity ^0.8.26;
 
 import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
 
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 
-import {IV4Quoter} from "../interfaces/IV4Quoter.sol";
 import {IYieldSource} from "../interfaces/IYieldSource.sol";
 import {SharedReservePool} from "../pool/SharedReservePool.sol";
 import {AssetMarketFactory} from "./AssetMarketFactory.sol";
+import {V4SwapSimulator} from "./V4SwapSimulator.sol";
 
 /// @title MarketLens
 /// @notice Read-only answers to the two questions an aggregator asks of a market: *how much
@@ -19,19 +20,21 @@ import {AssetMarketFactory} from "./AssetMarketFactory.sol";
 ///
 ///         **Why this exists.** A market's stable side is a brand token, not the reserve asset,
 ///         so every trade that starts or ends in USDG has two legs — a 1:1 `SharedReservePool`
-///         mint or redeem, and a Uniswap v4 swap. The v4 leg is quotable with Uniswap's own
-///         `V4Quoter` (our hook's skim is a hook delta, so a stock quote is exact). The reserve
-///         leg is arithmetic, but it is *capped* arithmetic: `mint` stops at `liabilityCap`, and
-///         `redeem` pays only what the reserve holds idle plus what its yield source can hand
-///         back this block. Neither cap is exposed as a view by the pool, and an integrator
+///         mint or redeem, and a Uniswap v4 swap. The v4 leg prices exactly as a stock quote
+///         would — our hook's skim is a hook delta, folded into the swap's own result. The
+///         reserve leg is arithmetic, but it is *capped* arithmetic: `mint` stops at
+///         `liabilityCap`, and `redeem` pays only what the reserve holds idle plus what its
+///         yield source can hand back this block. Neither cap is exposed as a view by the
+///         pool, and an integrator
 ///         who does not know the adapter internals cannot size a fill. This contract composes
 ///         the two legs and exposes both caps.
 ///
-///         **`quoteBuy` / `quoteSell` are not `view`.** They call the `V4Quoter`, which runs the
-///         swap for real inside `PoolManager.unlock` and reverts to unwind it. Use `eth_call`,
-///         and never from inside an unlock somebody else already opened — the manager permits
-///         one at a time. `maxMint`, `redeemableAssets`, `brandForRedeem` and `route` are plain
-///         views.
+///         **Every function here is `view`, including the quotes.** They do not call
+///         Uniswap's `V4Quoter`, which runs the swap for real inside `PoolManager.unlock` and
+///         so cannot be reached by `STATICCALL`; they replay the swap in memory from state
+///         read through `extsload` (`V4SwapSimulator`). That is what lets an aggregator
+///         sample this venue from inside its own batched call, or from inside an unlock it
+///         has already opened, instead of one top-level `eth_call` per quote.
 ///
 ///         **A quote is a size this venue can settle, or it is a revert.** Neither leg returns
 ///         a haircut: `quoteBuy` reverts `MintCapacityExceeded` rather than quote a mint the
@@ -56,14 +59,24 @@ import {AssetMarketFactory} from "./AssetMarketFactory.sol";
 ///         inside `maxMint`'s headroom.
 contract MarketLens {
     using PoolIdLibrary for PoolKey;
+    using V4SwapSimulator for IPoolManager;
 
     /// @dev `SharedReservePool.BPS`: basis points, the redemption fee's denominator.
     uint256 private constant BPS = 10_000;
     /// @dev `ProtocolFeeHook.PIPS_DENOMINATOR`: hundredths of a bip.
     uint256 private constant PIPS = 1_000_000;
 
+    /// @dev `gasEstimate`'s fixed term: what settling one swap against these pools costs
+    ///      before any tick is crossed. Calibrated against the deployed `V4Quoter`'s own
+    ///      measurement on a single-range market fill (130,318 gas, market 13, 2026-09-20).
+    uint256 private constant GAS_ESTIMATE_BASE = 130_000;
+    /// @dev `gasEstimate`'s variable term, per initialised tick the fill walks through.
+    uint256 private constant GAS_ESTIMATE_PER_TICK = 25_000;
+
     AssetMarketFactory public immutable factory;
-    IV4Quoter public immutable quoter;
+    /// @notice The v4 singleton the factory's markets live in. Read once at construction
+    ///         because a `PoolKey` names it and every market shares it.
+    IPoolManager public immutable poolManager;
 
     /// @notice Everything an integrator needs to index one market and settle against it.
     struct Route {
@@ -100,12 +113,14 @@ contract MarketLens {
     ///         which means the pool disagreed with itself by more than one unit of rounding.
     error QuoteUnavailable(uint256 amountOut);
 
-    constructor(AssetMarketFactory _factory, IV4Quoter _quoter) {
-        if (address(_factory) == address(0) || address(_quoter) == address(0)) {
-            revert ZeroAddress();
-        }
+    constructor(AssetMarketFactory _factory) {
+        if (address(_factory) == address(0)) revert ZeroAddress();
+
+        IPoolManager manager = _factory.poolManager();
+        if (address(manager) == address(0)) revert ZeroAddress();
+
         factory = _factory;
-        quoter = _quoter;
+        poolManager = manager;
     }
 
     // ─── Discovery ───────────────────────────────────────────────────────
@@ -234,14 +249,15 @@ contract MarketLens {
         return net;
     }
 
-    // ─── Whole-route quotes (eth_call only) ───────────────────────────────
+    // ─── Whole-route quotes ──────────────────────────────────────────────
 
     /// @notice Reserve asset in, market asset out: `mint` 1:1, then the v4 swap.
-    /// @dev Reverts `MintCapacityExceeded` when the reserve would refuse the mint, and the
-    ///      quoter's own `NotEnoughLiquidity` when the pool cannot fill — so a number that
+    /// @dev Reverts `MintCapacityExceeded` when the reserve would refuse the mint, and
+    ///      `V4SwapSimulator.NotEnoughLiquidity` when the pool cannot fill — so a number that
     ///      comes back is a number that settles.
     function quoteBuy(uint256 marketId, uint256 reserveAssetIn)
         external
+        view
         returns (uint256 assetOut, uint256 gasEstimate)
     {
         if (reserveAssetIn == 0) revert ZeroAmount();
@@ -263,6 +279,7 @@ contract MarketLens {
     /// @return brandOut        What the swap alone produces — the amount `redeem` burns
     function quoteSell(uint256 marketId, uint256 assetIn)
         external
+        view
         returns (uint256 reserveAssetOut, uint256 brandOut, uint256 gasEstimate)
     {
         if (assetIn == 0) revert ZeroAmount();
@@ -288,6 +305,7 @@ contract MarketLens {
     ///      was. `_grossInputFor` inverts the exact-input path instead.
     function quoteBuyExactOut(uint256 marketId, uint256 assetOut)
         external
+        view
         returns (uint256 reserveAssetIn, uint256 gasEstimate)
     {
         if (assetOut == 0) revert ZeroAmount();
@@ -305,6 +323,7 @@ contract MarketLens {
     ///         asset. See `quoteBuyExactOut` for why this is not a v4 exact-output quote.
     function quoteSellExactOut(uint256 marketId, uint256 reserveAssetOut)
         external
+        view
         returns (uint256 assetIn, uint256 brandNeeded, uint256 gasEstimate)
     {
         if (reserveAssetOut == 0) revert ZeroAmount();
@@ -323,7 +342,7 @@ contract MarketLens {
     ///      settlement pays the hook out of the OUTPUT, so the pool has to produce
     ///      `_grossFor(amountOut)` for `amountOut` to survive the skim. A v4 exact-output quote
     ///      for that gross figure reports what the pool needs PLUS the skim the hook charges in
-    ///      exact-output mode — where the unspecified currency is the input, so the quoter
+    ///      exact-output mode — where the unspecified currency is the input, so the quote
     ///      bills for it. That addition does not exist on the settlement path, so `_netFor`
     ///      strips it back out and leaves the pool's own input. That figure is then put through
     ///      a real exact-input quote, because v4's swap math rounds in the pool's favour in
@@ -358,7 +377,7 @@ contract MarketLens {
         address tokenIn,
         address tokenOut,
         uint256 amountOut
-    ) private returns (uint256 amountIn, uint256 gasEstimate) {
+    ) private view returns (uint256 amountIn, uint256 gasEstimate) {
         uint256 fee = factory.feeHook().feePipsFor(key.toId());
 
         // What the pool must produce for `amountOut` to survive the skim on the way out.
@@ -378,33 +397,49 @@ contract MarketLens {
         revert QuoteUnavailable(amountOut);
     }
 
+    /// @dev One exact-input swap, replayed from state. `hookData` is not modelled because
+    ///      `ProtocolFeeHook` reads none; the hook's rate is passed in so the simulation
+    ///      charges what the pause and the registration check say it charges, never the raw
+    ///      mapping.
     function _quoteExactIn(PoolKey memory key, address tokenIn, uint256 amountIn)
         private
+        view
         returns (uint256 amountOut, uint256 gasEstimate)
     {
-        return quoter.quoteExactInputSingle(
-            IV4Quoter.QuoteExactSingleParams({
-                poolKey: key,
-                zeroForOne: tokenIn == Currency.unwrap(key.currency0),
-                exactAmount: _toUint128(amountIn),
-                hookData: ""
-            })
+        uint256 ticksCrossed;
+        (amountOut, ticksCrossed) = poolManager.quoteExactInputSingle(
+            key,
+            tokenIn == Currency.unwrap(key.currency0),
+            _toUint128(amountIn),
+            factory.feeHook().feePipsFor(key.toId())
         );
+        gasEstimate = _gasEstimate(ticksCrossed);
     }
 
     function _quoteExactOut(PoolKey memory key, address tokenOut, uint256 amountOut)
         private
+        view
         returns (uint256 amountIn, uint256 gasEstimate)
     {
-        return quoter.quoteExactOutputSingle(
-            IV4Quoter.QuoteExactSingleParams({
-                poolKey: key,
-                // Selling currency0 buys currency1: zeroForOne iff the OUTPUT is currency1.
-                zeroForOne: tokenOut == Currency.unwrap(key.currency1),
-                exactAmount: _toUint128(amountOut),
-                hookData: ""
-            })
+        uint256 ticksCrossed;
+        (amountIn, ticksCrossed) = poolManager.quoteExactOutputSingle(
+            key,
+            // Selling currency0 buys currency1: zeroForOne iff the OUTPUT is currency1.
+            tokenOut == Currency.unwrap(key.currency1),
+            _toUint128(amountOut),
+            factory.feeHook().feePipsFor(key.toId())
         );
+        gasEstimate = _gasEstimate(ticksCrossed);
+    }
+
+    /// @dev What settling this fill would cost, as a model rather than a measurement.
+    ///      Uniswap's `V4Quoter` reports the gas its own simulated swap burned; a `view`
+    ///      quote has no such number to report, because the work it does is not the work the
+    ///      settlement does. So this is the shape of a v4 swap's cost — a fixed term plus one
+    ///      per initialised tick crossed — with both terms named as constants above. Treat it
+    ///      as a routing input, not as a gas limit.
+    function _gasEstimate(uint256 ticksCrossed) private pure returns (uint256) {
+        return GAS_ESTIMATE_BASE + ticksCrossed * GAS_ESTIMATE_PER_TICK;
     }
 
     function _toUint128(uint256 amount) private pure returns (uint128) {

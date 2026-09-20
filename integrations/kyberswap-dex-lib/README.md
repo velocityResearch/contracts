@@ -140,18 +140,30 @@ go test ./pkg/liquidity-source/uniswap/v4/hooks/stables/...
 ## Ground truth used in the tests
 
 Read from Robinhood Chain mainnet (chainId 4663) on 2026-09-18 and re-read at block
-**68,293,146** on 2026-09-20. Every value below was unchanged between the two reads.
+**68,293,146** on 2026-09-20. Every value below was unchanged between the two reads except the
+`MarketLens` address, which was redeployed later the same day; see the note under the table.
+The quoted amounts did not move with it.
 
 | Thing | Value |
 |---|---|
 | `ProtocolFeeHook` | `0xc9932584c5154e4F58313a2e5423522E74e540Cc` (UUPS proxy; permissions `0x00CC` mined into the address and permanent) |
 | `PoolManager` | `0x8366a39CC670B4001A1121B8F6A443A643e40951` |
 | `AssetMarketFactory` | `0x22AA61c589B90731752236c07d1455D0065bfc79` |
-| `MarketLens` | `0x0a3d8332D949b4aE650f3aC6468620e403a50fF1` — ownerless, stateless, the surface a simulator reads caps and quotes from |
+| `MarketLens` | `0x704E7a0e7864250303B05b25EabC2417CE99ceb6` — ownerless, stateless, the surface a simulator reads caps and quotes from |
 | Market 13 pool id | `0xf71c2e4fd2dee46e714a146f63235b4246e1cef46e40de59eec4dadedef95e61` |
 | `MAX_FEE_PIPS()` | `10000` = 1.00% |
 | `FEE_INCREASE_DELAY()` | `3600` seconds |
 | `feePipsFor(poolId)` | `0x1388` = 5,000 pips = 0.50%, on every live pool, with no increase pending on any of them |
+
+**Do not hardcode the `MarketLens` address in the plugin.** It is a plain immutable contract,
+not a proxy, so a revision is a new address rather than an upgrade in place, and the row above
+is already its second replacement: the 2026-09-20 redeploy that superseded
+`0x0a3d8332D949b4aE650f3aC6468620e403a50fF1`. Resolve it from `core.marketLens` in
+`deployments/asset-markets-mainnet-v6.json`, or make it a pool-list config field the way the
+other v4 hook plugins take their addresses. Every function on the current lens is `view`,
+including the four quote functions, so a simulator can `STATICCALL` the whole surface; the
+predecessor could not be reached that way, which is the practical reason to be sure which one
+you are pointed at.
 
 **Only market ids 13 to 18 are live.** Ids 1 to 12 exist on the factory but are zero-liquidity
 leftovers from earlier deploys and must be filtered out of any pool list. All six live pools

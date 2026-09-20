@@ -251,22 +251,36 @@ plus one word per argument ahead of the amount. It is **36** for every row below
 
 | Contract | Address |
 |---|---|
-| `MarketLens` | `0x0a3d8332D949b4aE650f3aC6468620e403a50fF1` |
+| `MarketLens` | `0x704E7a0e7864250303B05b25EabC2417CE99ceb6` |
 | `V4Quoter` (Uniswap's, unmodified) | `0x6492C2e9340A6Cc1b12963D4723D819Af5B3CC5F` |
 | `StateView` (Uniswap's, unmodified) | `0xa7D3DeD16C94F4FBAb1Fc24a0c6243043A67A804` |
 
-Deployed 2026-09-19. Both Uniswap contracts are ownerless and stateless. Reading the lens
-required upgrading both yield adapters first — `redeemableAssets` calls `withdrawable` on them,
-and the implementations deployed before this date did not have it.
+The lens was redeployed 2026-09-20 from `0x0a3d8332D949b4aE650f3aC6468620e403a50fF1`, which is
+still live and still returns identical numbers but is `nonpayable`. Both Uniswap contracts are
+ownerless and stateless. Reading the lens required upgrading both yield adapters first —
+`redeemableAssets` calls `withdrawable` on them, and the implementations deployed before
+2026-09-19 did not have it.
 
-`MarketLens` composes both legs and exposes both caps.
+`MarketLens` composes both legs and exposes both caps. **Every call on it is `view`**: it
+replays the v4 swap from state read through `extsload` rather than calling `V4Quoter`, so an
+aggregator can `STATICCALL` it — from a batched sampler, or from inside an `unlock` it already
+holds. Amounts are identical to the stock quoter's to the base unit, which
+`test/markets/MarketLensSimulatorFork.t.sol` checks across 24 buy and 24 sell sizes on all six
+live markets.
+
+`MarketLens` is a plain immutable contract, not a proxy and not upgradeable, so it cannot
+change under you and a revision is always a new address. The table above is already the second
+such revision. Resolve it at startup from `core.marketLens` in
+`deployments/asset-markets-mainnet-v6.json` rather than compiling the constant in, and you
+inherit the next one for free. `V4Quoter`, `StateView` and the `PoolManager` are Uniswap's
+canonical deployments and do not move.
 
 | Call | Returns | `view`? |
 |---|---|---|
-| `quoteBuy(id, usdgIn)` | `(assetOut, gas)`; reverts `MintCapacityExceeded(req, avail)` | no — `eth_call` |
-| `quoteSell(id, assetIn)` | `(usdgOut, brandOut, gas)`; reverts `RedeemCapacityExceeded(req, avail)` | no |
-| `quoteBuyExactOut(id, assetOut)` | least `usdgIn` that clears it **through an exact-input fill**; can revert `MintCapacityExceeded` | no |
-| `quoteSellExactOut(id, usdgOut)` | least `assetIn` that clears it, plus the brand it burns; can revert `RedeemCapacityExceeded` | no |
+| `quoteBuy(id, usdgIn)` | `(assetOut, gas)`; reverts `MintCapacityExceeded(req, avail)` | yes |
+| `quoteSell(id, assetIn)` | `(usdgOut, brandOut, gas)`; reverts `RedeemCapacityExceeded(req, avail)` | yes |
+| `quoteBuyExactOut(id, assetOut)` | least `usdgIn` that clears it **through an exact-input fill**; can revert `MintCapacityExceeded` | yes |
+| `quoteSellExactOut(id, usdgOut)` | least `assetIn` that clears it, plus the brand it burns; can revert `RedeemCapacityExceeded` | yes |
 | `maxMint(pool)` | mint headroom; 0 while paused; `uint256.max` when uncapped | yes |
 | `redeemableAssets(pool)` | idle USDG + what the yield source will release, less one unit | yes |
 | `brandForRedeem(pool, usdg)` | least brand to burn for that payout; capacity-checked | yes |
@@ -274,8 +288,9 @@ and the implementations deployed before this date did not have it.
 
 **A quote is a size that settles, or it is a revert.** Neither leg returns a haircut: over the
 reserve's mint cap is `MintCapacityExceeded`, over what it can pay out is
-`RedeemCapacityExceeded`, and a pool that cannot fill is the quoter's own `NotEnoughLiquidity`.
-Size a partial fill from `redeemableAssets` and `quoteSellExactOut`.
+`RedeemCapacityExceeded`, and a pool that cannot fill is `NotEnoughLiquidity(bytes32 poolId)`,
+selector `0x7a5ed734` — the same error `BaseV4Quoter` raises, and raised directly rather than
+wrapped. Size a partial fill from `redeemableAssets` and `quoteSellExactOut`.
 
 Arithmetic, for an off-chain model: `mint` and `swap` are `out = in`; `redeem` is
 `in − ⌊in·fee/10000⌋`, valid up to `redeemableAssets`. The v4 leg is a full-range

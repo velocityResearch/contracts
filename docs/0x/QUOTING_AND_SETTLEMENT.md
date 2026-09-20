@@ -18,7 +18,7 @@ Addresses used below:
 | Uniswap `V4Quoter` (canonical, unmodified) | `0x6492C2e9340A6Cc1b12963D4723D819Af5B3CC5F` |
 | Uniswap `StateView` (canonical, unmodified) | `0xa7D3DeD16C94F4FBAb1Fc24a0c6243043A67A804` |
 | `ProtocolFeeHook` | `0xc9932584c5154e4F58313a2e5423522E74e540Cc` |
-| `MarketLens` | `0x0a3d8332D949b4aE650f3aC6468620e403a50fF1` |
+| `MarketLens` | `0x704E7a0e7864250303B05b25EabC2417CE99ceb6` |
 | `MarketRouter` | `0x7553919210B172438853C3694Fd88fAfD4bE3Eb4` |
 | `AssetMarketFactory` | `0x22AA61c589B90731752236c07d1455D0065bfc79` |
 | sUSDai reserve (backs all six live markets) | `0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2` |
@@ -51,19 +51,22 @@ arithmetic (§2).
 
 One call per direction that composes the reserve leg and the pool leg and enforces both
 reserve capacities. Reference in §4. Use it when you want the whole USDG-to-asset route
-priced by one `eth_call`, or when you want the reserve's mint and redeem headroom checked for
+priced by one call, or when you want the reserve's mint and redeem headroom checked for
 you rather than reading `maxMint` and `redeemableAssets` and doing the comparison yourself.
 
-> **Read this before you wire it up.** On the contract actually deployed at
-> `0x0a3d8332D949b4aE650f3aC6468620e403a50fF1`, the four quote functions - `quoteBuy`,
-> `quoteSell`, `quoteBuyExactOut`, `quoteSellExactOut` - are **`nonpayable`, not `view`**.
-> They must be called with a top-level `eth_call`. **They cannot be `STATICCALL`ed**, so they
-> cannot be reached from a `view` function, from a `staticcall`-based multicall, or from
-> inside a `PoolManager.unlock` you have already opened. The cause is mechanical: the
-> deployed build delegates to Uniswap's `V4Quoter`, which performs a real swap inside
-> `PoolManager.unlock`, and `unlock` is state-mutating. `route`, `maxMint`,
-> `redeemableAssets`, `brandForRedeem`, `reserveOf` and `quoter` **are** `view` and are safe
-> to batch. See §4 and §4.1.
+**Every function on it is `view`, the four quote functions included.** `quoteBuy`,
+`quoteSell`, `quoteBuyExactOut` and `quoteSellExactOut` can be `STATICCALL`ed: from a `view`
+function, from a staticcall-based multicall, from a batched sampler, or from inside a
+`PoolManager.unlock` you have already opened. It does not call Uniswap's `V4Quoter` — that
+contract runs a real swap inside `unlock`, which is state-mutating and is why a quoter built
+on it cannot be sampled. This one replays `Pool.swap` in memory from state read through
+`extsload`, using v4-core's own `SwapMath`, `TickMath` and `LiquidityMath`, and applies the
+hook's skim itself.
+
+> **If you are working from a copy of this document dated before 2026-09-20:** the lens then
+> deployed at `0x0a3d8332D949b4aE650f3aC6468620e403a50fF1` was `nonpayable` and could only be
+> reached by a top-level `eth_call`. That address is still live and still returns the same
+> numbers; it is simply not samplable. Use the address in the table above.
 
 `MarketLens` is ownerless and stateless. It is not a proxy, so it cannot be upgraded under
 you; a change means a new address.
@@ -77,27 +80,39 @@ quoting `eth_call` at all.
 
 ### Recommendation for 0x
 
-**Model the v4 leg off-chain (c), and treat the reserve leg as a separate `BASIC` action.**
+**Model the v4 leg off-chain (c) for the routing loop, and treat the reserve leg as a separate
+`BASIC` action. Sample `MarketLens` (b) on the path that has to be exact.**
 
-The reasoning is specific to how 0x's Swap API works, not a general preference:
+Before 2026-09-20 the second half of that sentence was not available: the lens could not be
+`STATICCALL`ed, so the only way to reach it was a top-level `eth_call`, and a sampler that
+already batches its venue reads into one call could not include this venue at all. That
+constraint is gone. The lens is now `view`, so it drops into whatever batching you already do,
+including a sampler contract running inside an `unlock`. The recommendation below is therefore
+about cost and about split routing, not about reachability.
 
 - 0x already models Uniswap v4 as a liquidity source on this chain, and the only thing that
   makes these pools different from a plain v4 pool is a fee rate that is one `feePipsFor(poolId)`
   read. There is no new curve to implement. The six pools are single full-range positions, so
   the sampler never has to walk a tick bitmap.
+- Split routing needs a model it can differentiate and evaluate at many sizes per block. That
+  is an argument for closed form regardless of how cheap a quote is: an on-chain sample gives
+  you one point on the curve, and the router wants the curve.
 - These pools are small (roughly $37.7k of pool TVL in total; see [Markets](./MARKETS.md)).
-  At the sizes 0x routes, the marginal value of a pool-accurate on-chain quote is low relative
-  to the per-quote `eth_call` cost, and the split-routing logic that actually matters needs a
-  differentiable off-chain model anyway.
+  At the sizes 0x routes, the marginal value of a pool-accurate on-chain quote per candidate
+  size is low, even now that the sample is batchable and costs one `STATICCALL` rather than a
+  round trip of its own.
 - The deep leg is the reserve, not the pools: about 9.96M USDG of mint headroom and about
   35,276 USDG redeemable at 1:1 less 20 bps, read at block 68,293,146. That leg is exact
   integer arithmetic with no curve at all, so modeling it costs nothing and unlocks the only
   size that is actually large here.
 
-Use `MarketLens` (b) as the pre-trade confirmation and as the reference implementation you
-diff your sampler against, not as the hot path. Use `V4Quoter` (a) as the ground truth in
-tests: if your off-chain model and the stock quoter disagree by more than the rounding
-described in §2, your model is wrong.
+Where the lens now earns its place: as the pre-trade confirmation on the size you actually
+chose, batched with your other reads or called from inside your own settlement path, and as
+the reference implementation you diff your sampler against. It also enforces both reserve
+capacities for you, which a closed-form model has to remember to do itself. Use `V4Quoter` (a)
+as the ground truth in tests: if your off-chain model and the stock quoter disagree by more
+than the rounding described in §2, your model is wrong. Note that `V4Quoter` is the one piece
+here that is still `nonpayable` and still needs a top-level `eth_call`; the lens is not.
 
 ---
 
@@ -327,7 +342,7 @@ nothing else.** Any number that came out of `V4Quoter`, out of `MarketLens`, or 
 
 ## 4. `MarketLens` reference
 
-`0x0a3d8332D949b4aE650f3aC6468620e403a50fF1`. Ownerless, stateless, not a proxy.
+`0x704E7a0e7864250303B05b25EabC2417CE99ceb6`. Ownerless, stateless, not a proxy.
 
 `maxMint`, `redeemableAssets` and `brandForRedeem` take a **reserve pool address**, not a
 market id. Get it from `route(id).reservePool`. Everything else takes a market id.
@@ -339,24 +354,27 @@ market id. Get it from `route(id).reservePool`. Everything else takes a market i
 | `maxMint(address reserve)` | `view` | mint headroom in reserve-asset units; `0` while paused; `type(uint256).max` when uncapped | - |
 | `redeemableAssets(address reserve)` | `view` | idle balance plus what the yield source will release, less one unit | - |
 | `brandForRedeem(address reserve, uint256 assetsOut)` | `view` | least brand to burn for that payout | `RedeemCapacityExceeded(requested, available)` |
-| `quoteBuy(uint256 marketId, uint256 reserveAssetIn)` | **`nonpayable`** | `(assetOut, gasEstimate)` | `ZeroAmount`, `MintCapacityExceeded(requested, available)`, `AmountTooLarge(amount)`, plus anything bubbled from the underlying `V4Quoter` |
-| `quoteSell(uint256 marketId, uint256 assetIn)` | **`nonpayable`** | `(reserveAssetOut, brandOut, gasEstimate)` | `ZeroAmount`, `RedeemCapacityExceeded`, `AmountTooLarge` |
-| `quoteBuyExactOut(uint256 marketId, uint256 assetOut)` | **`nonpayable`** | `(reserveAssetIn, gasEstimate)` | `ZeroAmount`, `MintCapacityExceeded`, `QuoteUnavailable(amountOut)`, `AmountTooLarge` |
-| `quoteSellExactOut(uint256 marketId, uint256 reserveAssetOut)` | **`nonpayable`** | `(assetIn, brandNeeded, gasEstimate)` | `ZeroAmount`, `RedeemCapacityExceeded`, `QuoteUnavailable`, `AmountTooLarge` |
-| `quoter()` | `view` | the `V4Quoter` this lens wraps: `0x6492C2e9340A6Cc1b12963D4723D819Af5B3CC5F` | - |
+| `quoteBuy(uint256 marketId, uint256 reserveAssetIn)` | `view` | `(assetOut, gasEstimate)` | `ZeroAmount`, `MintCapacityExceeded(requested, available)`, `AmountTooLarge(amount)`, `NotEnoughLiquidity(poolId)` |
+| `quoteSell(uint256 marketId, uint256 assetIn)` | `view` | `(reserveAssetOut, brandOut, gasEstimate)` | `ZeroAmount`, `RedeemCapacityExceeded`, `AmountTooLarge`, `NotEnoughLiquidity` |
+| `quoteBuyExactOut(uint256 marketId, uint256 assetOut)` | `view` | `(reserveAssetIn, gasEstimate)` | `ZeroAmount`, `MintCapacityExceeded`, `QuoteUnavailable(amountOut)`, `AmountTooLarge`, `NotEnoughLiquidity` |
+| `quoteSellExactOut(uint256 marketId, uint256 reserveAssetOut)` | `view` | `(assetIn, brandNeeded, gasEstimate)` | `ZeroAmount`, `RedeemCapacityExceeded`, `QuoteUnavailable`, `AmountTooLarge`, `NotEnoughLiquidity` |
+| `poolManager()` | `view` | the singleton it reads: `0x8366a39CC670B4001A1121B8F6A443A643e40951` | - |
 | `factory()` | `view` | `0x22AA61c589B90731752236c07d1455D0065bfc79` | - |
 
 The mutability column is read from the deployed contract's verified ABI on Sourcify, not from
-the repository. **The four quote functions are `nonpayable`, so they need a top-level
-`eth_call`. They cannot be `STATICCALL`ed, and you cannot sample this lens from inside an
-`unlock` you have already opened.** The reason is mechanical: the live build delegates to
-Uniswap's `V4Quoter`, which runs the swap for real inside `PoolManager.unlock`, and `unlock` is
-state-mutating and non-reentrant. The read-only-simulator variant in
-`src/markets/MarketLens.sol` is a later revision that is not deployed at this address; §4.1
-sets out the full difference and how to reproduce it.
+the repository. **All ten functions are `view`**, so the whole surface can be `STATICCALL`ed,
+batched into a multicall, or sampled from inside an `unlock` you have already opened. The
+lens does not call `V4Quoter`; it replays `Pool.swap` from `extsload` state using v4-core's
+own `SwapMath`, `TickMath` and `LiquidityMath`, then applies the hook's skim. There is no
+`quoter()` function — that call reverts.
 
-`gasEstimate` is a routing input, not a gas limit. On market 13 at 100 USDG the lens reported
-130414 and `V4Quoter` reported 139414 for the same fill.
+`NotEnoughLiquidity(bytes32 poolId)` is the same name and the same selector `0x7a5ed734` that
+`BaseV4Quoter` uses, and here it is raised directly rather than wrapped, so it decodes with
+the handler you already have.
+
+`gasEstimate` is a routing input and not a measurement: a `view` quote has no swap to measure,
+so the lens returns a declared model of settlement cost — `130,000 + 25,000` per initialised
+tick the fill crosses. For comparison, `V4Quoter` measured 139,414 on market 13 at 100 USDG.
 
 ### A quote is a size that settles, or it is a revert
 
@@ -367,8 +385,8 @@ property you should rely on when sizing:
   rather than quoting the capped size.
 - Over what the reserve can pay this block, `quoteSell` reverts
   `RedeemCapacityExceeded(requested, available)` rather than quoting the reduced payout.
-- A pool that cannot fill reverts inside the underlying `V4Quoter` and that revert is bubbled,
-  rather than being turned into a smaller number.
+- A pool that cannot fill reverts `NotEnoughLiquidity(poolId)` rather than being turned into
+  a smaller number.
 
 The reason a capped sell figure would be actively dangerous, rather than merely unhelpful, is
 that the brand leg is burned whole either way. `SharedReservePool._redeem` burns first
@@ -380,46 +398,35 @@ Both errors carry `available` as their second argument, so a failed quote is als
 answer: catch the revert, decode it, and re-quote at `available` or split the order. Size a
 partial sell from `redeemableAssets` and `quoteSellExactOut`.
 
-### 4.1 Repo source versus deployed bytecode
+### 4.1 Source and deployed bytecode agree
 
-This repository and the chain disagree about `MarketLens`. The chain wins: 0x will call the
-deployed bytecode, not our working tree. The difference is stated here as a known fact.
+They did not until 2026-09-20. The lens then deployed at
+`0x0a3d8332D949b4aE650f3aC6468620e403a50fF1` wrapped Uniswap's `V4Quoter` and so was
+`nonpayable`; the read-only simulator existed only in the repository. It is now deployed at
+the address above, and `src/markets/MarketLens.sol` plus `src/markets/V4SwapSimulator.sol`
+build to exactly that runtime bytecode. Both are verified `exact_match` on Sourcify.
 
-| | Deployed at `0x0a3d8332D949b4aE650f3aC6468620e403a50fF1` | `src/markets/MarketLens.sol` in this repo |
-|---|---|---|
-| `quoteBuy` / `quoteSell` / `quoteBuyExactOut` / `quoteSellExactOut` | `nonpayable` | `view` |
-| How the v4 leg is priced | delegates to Uniswap's canonical `V4Quoter`, which swaps for real inside `PoolManager.unlock` | replays the swap in memory from `extsload` state via an internal `V4SwapSimulator` |
-| `quoter()` | present, returns `0x6492C2e9340A6Cc1b12963D4723D819Af5B3CC5F` | absent |
-| `poolManager()` | absent - the call reverts | present |
-| `Route` struct layout | identical | identical |
-| Errors | `ZeroAmount`, `ZeroAddress`, `AmountTooLarge`, `MintCapacityExceeded`, `RedeemCapacityExceeded`, `QuoteUnavailable` | same set |
+The old address is still live, still ownerless, and still returns identical amounts — it just
+cannot be `STATICCALL`ed. Nothing points at it any more. `MarketLens` is not upgradeable, so
+every revision is a new address; pin the one in the table at the top of this document, or read
+`core.marketLens` from `deployments/asset-markets-mainnet-v6.json`.
 
-How to reproduce, in three calls:
+How to check what you are talking to, in three calls:
 
 ```bash
-cast call --rpc-url https://rpc.mainnet.chain.robinhood.com 0x0a3d8332D949b4aE650f3aC6468620e403a50fF1 "quoter()(address)"
-# 0x6492C2e9340A6Cc1b12963D4723D819Af5B3CC5F
-cast call --rpc-url https://rpc.mainnet.chain.robinhood.com 0x0a3d8332D949b4aE650f3aC6468620e403a50fF1 "poolManager()(address)"
-# execution reverted
-curl -s "https://sourcify.dev/server/v2/contract/4663/0x0a3d8332D949b4aE650f3aC6468620e403a50fF1?fields=abi" | jq -r '.abi[] | select(.type=="function") | "\(.name) \(.stateMutability)"'
-# quoteBuy nonpayable / quoteSell nonpayable / quoteBuyExactOut nonpayable / quoteSellExactOut nonpayable
-# route view / maxMint view / redeemableAssets view / brandForRedeem view / reserveOf view / quoter view / factory view
+cast call --rpc-url https://rpc.mainnet.chain.robinhood.com 0x704E7a0e7864250303B05b25EabC2417CE99ceb6 "poolManager()(address)"
+# 0x8366a39CC670B4001A1121B8F6A443A643e40951   (reverts on the old lens)
+cast call --rpc-url https://rpc.mainnet.chain.robinhood.com 0x704E7a0e7864250303B05b25EabC2417CE99ceb6 "quoter()(address)"
+# execution reverted                            (answers on the old lens)
+curl -s "https://sourcify.dev/server/v2/contract/4663/0x704E7a0e7864250303B05b25EabC2417CE99ceb6?fields=abi" | jq -r '.abi[] | select(.type=="function") | "\(.name) \(.stateMutability)"'
+# every function, quoteBuy included, reads view
 ```
 
-Consequences for an integration, in the order they will bite:
-
-1. **Anything that needs `STATICCALL` must not touch the four quote functions.** A `view`
-   wrapper, a `staticcall`-based multicall, or a sampler running inside your own `unlock` will
-   revert. Use a top-level `eth_call`, or model the leg off-chain (§2).
-2. **`route(id)` is safe to rely on and safe to batch**, on the deployed contract, today. The
-   struct layout is identical across both builds, so an ABI generated from either source
-   decodes it correctly.
-3. **`MarketLens` is not upgradeable.** It is ownerless, stateless and not a proxy, so the
-   repo build cannot replace the deployed one in place. If it is ever deployed it will be at a
-   new address, and the one in this document will keep behaving exactly as described.
-4. **Repo line citations elsewhere in this package describe intent, not deployed bytecode,
-   where `MarketLens` is concerned.** Every other contract cited here - `ProtocolFeeHook`,
-   `SharedReservePool`, `MarketRouter` - is the deployed implementation.
+The equivalence is not asserted, it is measured. `test/markets/MarketLensSimulatorFork.t.sol`
+quotes 24 buy and 24 sell sizes across all six live markets against the canonical `V4Quoter`
+at the same block and requires equality to the base unit, and it proves reachability the way
+the EVM does: a contract-level `STATICCALL` of `quoteBuy(13, 1e6)` returns success against
+this lens and reverts against the old one.
 
 ---
 

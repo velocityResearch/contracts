@@ -23,7 +23,7 @@ explorer `https://robinhoodchain.blockscout.com`.
 | `ProtocolFeeHook` (UUPS proxy, hook flags `0x00CC`) | `0xc9932584c5154e4F58313a2e5423522E74e540Cc` |
 | `AssetMarketFactory` | `0x22AA61c589B90731752236c07d1455D0065bfc79` |
 | `MarketRouter` | `0x7553919210B172438853C3694Fd88fAfD4bE3Eb4` |
-| `MarketLens` (ownerless, stateless) | `0x0a3d8332D949b4aE650f3aC6468620e403a50fF1` |
+| `MarketLens` (ownerless, stateless) | `0x704E7a0e7864250303B05b25EabC2417CE99ceb6` |
 | `SharedReservePool`, sUSDai | `0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2` |
 | `SharedReservePool`, USDG/Morpho | `0xdB485351d953F10FAA7c820B7648f6E91d9Cd9F3` |
 | `ProtocolGuard` | `0x013D1974F8215a12280e6b9a33F9732277F38C0e` |
@@ -39,6 +39,15 @@ Venue contracts are Uniswap's own, unmodified: `PoolManager`
 
 **Live markets are ids 13 through 18.** Ids 1-12 exist on the factory and are dead
 zero-liquidity leftovers from earlier deploys; filter them out rather than presenting them.
+
+**`MarketLens` is the one row that has moved twice.** It is not upgradeable, so every revision
+is a new deployment at a new address rather than new code behind a fixed one. The first
+replacement followed the hook's fee moving legs; the second, on 2026-09-20, replaced the
+`V4Quoter` wrapper with an in-memory replay of `Pool.swap` over `extsload` state, which made
+all four quote functions `view` and therefore reachable by `STATICCALL`. Its predecessor
+`0x0a3d8332D949b4aE650f3aC6468620e403a50fF1` is still live and still returns identical amounts,
+so a stale reader gets right answers from an orphaned contract rather than an error. Read the
+current address from `core.marketLens` in `deployments/asset-markets-mainnet-v6.json`.
 
 **`LiquidityZapper` V1 `0x6f67108e7716A1f00902Ed219B055633fB2FE8Fd` is ownerless, has no
 slippage protection and is sandwichable. Never recommend it to anyone.** It stays verified on

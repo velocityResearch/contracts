@@ -26,7 +26,6 @@ import {MarketLens} from "../../src/markets/MarketLens.sol";
 import {MockUSDC} from "../mocks/MockUSDC.sol";
 import {MockAsset} from "./mocks/MockBuybackVenue.sol";
 import {StackFixture} from "../helpers/StackFixture.sol";
-import {StandInV4Quoter} from "../helpers/StandInV4Quoter.sol";
 
 /// @dev A yield source whose backing can be moved off-chain, which is `SUSDaiYieldSource`'s
 ///      shape: `balanceOf` books the whole position, `withdraw` pays only what is local, and
@@ -147,7 +146,6 @@ contract MarketLensTest is Test, StackFixture {
     PoolManager manager;
     ProtocolFeeHook hook;
     PoolModifyLiquidityTest lpRouter;
-    StandInV4Quoter quoter;
 
     MockUSDC usdg;
     BufferedYieldSource yieldSource;
@@ -170,7 +168,6 @@ contract MarketLensTest is Test, StackFixture {
         _deployUpgradeBase();
         manager = new PoolManager(address(this));
         lpRouter = new PoolModifyLiquidityTest(IPoolManager(address(manager)));
-        quoter = new StandInV4Quoter(IPoolManager(address(manager)));
         hook = _deployHookAt(
             address(
                 uint160(
@@ -212,7 +209,7 @@ contract MarketLensTest is Test, StackFixture {
         router = _deployRouter(
             reserve, factory, IPositionManagerV4(posm), IPermit2(address(0xBEEF)), owner
         );
-        lens = new MarketLens(factory, quoter);
+        lens = new MarketLens(factory);
 
         asset = new MockAsset();
         _approveAsset(
@@ -258,6 +255,63 @@ contract MarketLensTest is Test, StackFixture {
             brandQuoted - brandQuoted * REDEMPTION_FEE_BPS / 10_000,
             "the reserve leg is par less the fee"
         );
+    }
+
+    /// @notice The reason this lens simulates the swap instead of calling `V4Quoter`: an
+    ///         aggregator samples venues from inside its own call, which is a `STATICCALL`.
+    ///         A quoter that unlocks the `PoolManager` cannot answer one. Asked through a
+    ///         low-level static call so the EVM enforces it rather than solc's `view`.
+    function test_quotesAnswerInsideAStaticcall() public view {
+        (bool buyOk, bytes memory buyData) =
+            address(lens).staticcall(abi.encodeCall(MarketLens.quoteBuy, (marketId, 1_000e6)));
+        assertTrue(buyOk, "quoteBuy must survive STATICCALL");
+        (uint256 assetOut,) = abi.decode(buyData, (uint256, uint256));
+        assertGt(assetOut, 0, "and answer with a number");
+
+        (bool sellOk, bytes memory sellData) =
+            address(lens).staticcall(abi.encodeCall(MarketLens.quoteSell, (marketId, 1_000e18)));
+        assertTrue(sellOk, "quoteSell must survive STATICCALL");
+        (uint256 usdgOut,,) = abi.decode(sellData, (uint256, uint256, uint256));
+        assertGt(usdgOut, 0, "and answer with a number");
+
+        (bool outOk,) = address(lens)
+            .staticcall(abi.encodeCall(MarketLens.quoteBuyExactOut, (marketId, 100e18)));
+        assertTrue(outOk, "quoteBuyExactOut must survive STATICCALL");
+    }
+
+    /// @notice The simulated swap must walk the tick bitmap the way the pool does, not assume
+    ///         one full-range position. Today's markets are single-range, so a closed-form
+    ///         constant-product quote would pass every other test in this file and then be
+    ///         silently wrong the day someone adds a concentrated position. This seeds one and
+    ///         buys through it.
+    function test_quoteIsTheFillWhenTheSwapCrossesInitialisedTicks() public {
+        _seedNarrowBand(marketId, 20_000e6, 20_000e18);
+
+        uint256 usdgIn = 30_000e6;
+        (uint256 quoted, uint256 gasEstimate) = lens.quoteBuy(marketId, usdgIn);
+
+        _fundTraderUsdg(usdgIn);
+        vm.prank(trader);
+        uint256 filled = router.buyWithUsdg(marketId, usdgIn, quoted, trader, _deadline());
+
+        assertEq(filled, quoted, "the quote is the fill across a tick boundary");
+        assertGt(gasEstimate, 130_000, "a crossed tick shows up in the gas estimate");
+    }
+
+    /// @notice The exact-out inversion has to survive tick crossing too: it quotes in the
+    ///         opposite mode from the one it settles in, so a boundary the two modes reach at
+    ///         different points is exactly where it would break.
+    function test_quoteBuyExactOutSurvivesATickBoundary() public {
+        _seedNarrowBand(marketId, 20_000e6, 20_000e18);
+
+        uint256 want = 25_000e18;
+        (uint256 usdgIn,) = lens.quoteBuyExactOut(marketId, want);
+
+        _fundTraderUsdg(usdgIn);
+        vm.prank(trader);
+        uint256 filled = router.buyWithUsdg(marketId, usdgIn, want, trader, _deadline());
+
+        assertGe(filled, want, "the least input still clears the target");
     }
 
     /// @notice A reserve that cannot pay the redemption is a refusal, not a discount. The
@@ -491,6 +545,47 @@ contract MarketLensTest is Test, StackFixture {
         int24 tickLower = TickMath.minUsableTick(TICK_SPACING);
         int24 tickUpper = TickMath.maxUsableTick(TICK_SPACING);
         (uint160 sqrtPriceX96,,,) = IPoolManager(address(manager)).getSlot0(key.toId());
+        (uint256 amount0, uint256 amount1) =
+            m.brandToken < m.asset ? (usdgAmount, assetAmount) : (assetAmount, usdgAmount);
+
+        uint128 liquidity = LiquidityAmounts.getLiquidityForAmounts(
+            sqrtPriceX96,
+            TickMath.getSqrtPriceAtTick(tickLower),
+            TickMath.getSqrtPriceAtTick(tickUpper),
+            amount0,
+            amount1
+        );
+        lpRouter.modifyLiquidity(
+            key,
+            ModifyLiquidityParams({
+                tickLower: tickLower,
+                tickUpper: tickUpper,
+                liquidityDelta: int256(uint256(liquidity)),
+                salt: bytes32(0)
+            }),
+            ""
+        );
+    }
+
+    /// @dev A second, concentrated position a few tick-spacings wide around the current
+    ///      price, so a fill has initialised ticks to cross on its way out of the band.
+    function _seedNarrowBand(uint256 id, uint256 usdgAmount, uint256 assetAmount) internal {
+        AssetMarketFactory.Market memory m = factory.market(id);
+        PoolKey memory key = factory.poolKeyOf(id);
+
+        usdg.mint(address(this), usdgAmount);
+        usdg.approve(address(reserve), usdgAmount);
+        reserve.mint(m.brandToken, usdgAmount, address(this));
+        asset.mint(address(this), assetAmount);
+
+        IERC20(m.brandToken).approve(address(lpRouter), type(uint256).max);
+        IERC20(m.asset).approve(address(lpRouter), type(uint256).max);
+
+        (uint160 sqrtPriceX96, int24 tick,,) = IPoolManager(address(manager)).getSlot0(key.toId());
+        int24 centre = (tick / TICK_SPACING) * TICK_SPACING;
+        int24 tickLower = centre - TICK_SPACING * 4;
+        int24 tickUpper = centre + TICK_SPACING * 4;
+
         (uint256 amount0, uint256 amount1) =
             m.brandToken < m.asset ? (usdgAmount, assetAmount) : (assetAmount, usdgAmount);
 

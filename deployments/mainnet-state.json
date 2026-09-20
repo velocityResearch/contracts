@@ -1,10 +1,10 @@
 {
   "$schema": "generated file - do not hand-edit",
   "generatedBy": "script/sync-mainnet-state.mjs",
-  "generatedAt": "2026-09-20T19:40:55.433Z",
+  "generatedAt": "2026-09-20T23:17:42.744Z",
   "chainId": 4663,
-  "blockNumber": 68196940,
-  "blockTimestamp": "2026-09-20T19:40:51.000Z",
+  "blockNumber": 68326136,
+  "blockTimestamp": "2026-09-20T23:17:38.000Z",
   "rpcUrl": "https://rpc.mainnet.chain.robinhood.com",
   "addressBook": [
     "deployments/asset-markets-mainnet-v6.json",
@@ -22,7 +22,7 @@
       "poolManager": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
       "positionManager": "0x58daec3116aae6D93017bAAea7749052E8a04fA7",
       "launchpad": "0xF5f4Eb45347ec69CB56D1c682a0FdA83bb9f4efC",
-      "protocolTreasury": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9",
+      "protocolTreasury": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373",
       "protocolBpsOnYield": 0,
       "protocolFeePipsOnTrading": 5000,
       "rewardsDurationSeconds": 604800,
@@ -126,25 +126,25 @@
           "marketId": 13,
           "poolId": "0xf71c2e4fd2dee46e714a146f63235b4246e1cef46e40de59eec4dadedef95e61",
           "feePips": 5000,
-          "recipient": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9"
+          "recipient": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373"
         },
         {
           "marketId": 14,
           "poolId": "0x973ed4693085eef0e03837dd45ea535684824f56787bf71987cd7cfb70f06576",
           "feePips": 5000,
-          "recipient": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9"
+          "recipient": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373"
         },
         {
           "marketId": 15,
           "poolId": "0x9f8629af761ca0c5f5ed8dfc08c4922495900f30074a0e53f7839e7b5d318f58",
           "feePips": 5000,
-          "recipient": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9"
+          "recipient": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373"
         },
         {
           "marketId": 16,
           "poolId": "0x55db22f2da53a8dd00b9fa6098abd910e65459287a3e43f855ddee595774536e",
           "feePips": 5000,
-          "recipient": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9"
+          "recipient": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373"
         },
         {
           "marketId": 17,
@@ -175,7 +175,7 @@
         "yieldSource": "0x8e4E5e5EE25DF4721D845600F82bf2Bca48Fa358",
         "guard": "0x013D1974F8215a12280e6b9a33F9732277F38C0e",
         "paused": false,
-        "totalAssetsRaw": "1000429",
+        "totalAssetsRaw": "1000444",
         "totalPooledSupplyRaw": "1000000",
         "redemptionFeeBps": 0,
         "liabilityCapRaw": "0",
@@ -234,7 +234,7 @@
             "outstanding": "0"
           }
         ],
-        "totalAssets": "1.000429",
+        "totalAssets": "1.000444",
         "totalPooledSupply": "1",
         "liabilityCap": "0",
         "collateralisationNote": "fully backed: totalAssets >= totalPooledSupply"
@@ -246,13 +246,13 @@
         "yieldSource": "0x460f319E43428387bff58ec262C992Ec7DA22fDc",
         "guard": "0x013D1974F8215a12280e6b9a33F9732277F38C0e",
         "paused": false,
-        "totalAssetsRaw": "36004451364",
-        "totalPooledSupplyRaw": "35735288258",
+        "totalAssetsRaw": "35276269401",
+        "totalPooledSupplyRaw": "35067728991",
         "redemptionFeeBps": 20,
         "liabilityCapRaw": "10000000000000",
         "lossCarryforwardRaw": "0",
-        "cumulativeYieldPerToken": "6605158664766461",
-        "lastAccrualAssetsRaw": "36004355241",
+        "cumulativeYieldPerToken": "6607848526935922",
+        "lastAccrualAssetsRaw": "35274934283",
         "brandCount": 31,
         "brandTokenBeacon": "0x1964b405C09CF252d835A80556536C86dcbE105F",
         "treasuryBeacon": "0xf8b758dfb9d22448Ab13C7FcC1f23b75A998C34E",
@@ -279,7 +279,7 @@
             "registered": true,
             "treasury": "0xE2d144F8b18d4743fdC4D74e4AE621307e443e38",
             "outstandingRaw": "6787618422",
-            "accruedYieldRaw": "61929060",
+            "accruedYieldRaw": "0",
             "outstanding": "6787.618422"
           },
           {
@@ -539,12 +539,12 @@
             "token": "0xA138D500c4f96B6Fa319719bA325e6DE62C567b4",
             "symbol": "SDOGE.d",
             "decimals": 6,
-            "totalSupplyRaw": "18658075272",
+            "totalSupplyRaw": "17990516005",
             "registered": true,
             "treasury": "0xA9050F053441a3EcB4EEee9E70f4f46dA62647E7",
-            "outstandingRaw": "18658075272",
-            "accruedYieldRaw": "151004867",
-            "outstanding": "18658.075272"
+            "outstandingRaw": "17990516005",
+            "accruedYieldRaw": "151055054",
+            "outstanding": "17990.516005"
           },
           {
             "token": "0x1Aa1526302625de02791538DB45c45E96bb75A70",
@@ -602,8 +602,8 @@
             "outstanding": "0"
           }
         ],
-        "totalAssets": "36004.451364",
-        "totalPooledSupply": "35735.288258",
+        "totalAssets": "35276.269401",
+        "totalPooledSupply": "35067.728991",
         "liabilityCap": "10000000",
         "collateralisationNote": "fully backed: totalAssets >= totalPooledSupply"
       }
@@ -614,8 +614,8 @@
         "consumer": "0xdB485351d953F10FAA7c820B7648f6E91d9Cd9F3",
         "asset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
         "balanceOfRaw": "0",
-        "totalAssetsRaw": "341647972441700",
-        "withdrawableRaw": "1000425",
+        "totalAssetsRaw": "341616590992699",
+        "withdrawableRaw": "1000440",
         "owner": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373",
         "pendingOwner": "0x0000000000000000000000000000000000000000",
         "susdai": null,
@@ -624,19 +624,19 @@
           "marketId": "0xc845da65a020ddca5f132efa8fea79676d8edfdea504226a4c01e7a9e34cddd6"
         },
         "balanceOf": "0",
-        "withdrawable": "1.000425"
+        "withdrawable": "1.00044"
       },
       {
         "address": "0x460f319E43428387bff58ec262C992Ec7DA22fDc",
         "consumer": "0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2",
         "asset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
-        "balanceOfRaw": "36004451363",
-        "totalAssetsRaw": "36004451363",
-        "withdrawableRaw": "36004451363",
+        "balanceOfRaw": "35276269400",
+        "totalAssetsRaw": "35276269400",
+        "withdrawableRaw": "35276269400",
         "owner": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373",
         "pendingOwner": "0x0000000000000000000000000000000000000000",
         "susdai": {
-          "availableLiquidityRaw": "36004451363",
+          "availableLiquidityRaw": "35276269400",
           "remoteValueRaw": "0",
           "remoteValueUpdatedAt": null,
           "outboundInFlightRaw": "0",
@@ -650,12 +650,12 @@
           "keeper": "0x467Ca912943e85A0B0e72B7E1190129762481EEC",
           "controller": "0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2",
           "hub": "0x740ddd200D9Ee605F25239Ba701bdd89161034b1",
-          "availableLiquidity": "36004.451363",
+          "availableLiquidity": "35276.2694",
           "remoteValue": "0"
         },
         "morpho": null,
-        "balanceOf": "36004.451363",
-        "withdrawable": "36004.451363"
+        "balanceOf": "35276.2694",
+        "withdrawable": "35276.2694"
       }
     ],
     "beacons": [
@@ -718,7 +718,7 @@
       "graduatedCreatorShareBps": 4000,
       "graduatedCreatorYieldShareBps": 4000,
       "protocolFeeShareBps": 3000,
-      "protocolFeeRecipient": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9",
+      "protocolFeeRecipient": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373",
       "maxCreatorTaxBps": 1000,
       "snipeTaxStartBps": 9900,
       "snipeTaxSeconds": 15,
@@ -1167,7 +1167,7 @@
         "createdAt": "2026-09-17T09:04:59.000Z",
         "reservePool": "0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2",
         "protocolFeePips": 5000,
-        "protocolFeeRecipient": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9"
+        "protocolFeeRecipient": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373"
       },
       {
         "id": 14,
@@ -1184,7 +1184,7 @@
         "createdAt": "2026-09-17T09:04:59.000Z",
         "reservePool": "0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2",
         "protocolFeePips": 5000,
-        "protocolFeeRecipient": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9"
+        "protocolFeeRecipient": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373"
       },
       {
         "id": 15,
@@ -1201,7 +1201,7 @@
         "createdAt": "2026-09-17T09:04:59.000Z",
         "reservePool": "0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2",
         "protocolFeePips": 5000,
-        "protocolFeeRecipient": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9"
+        "protocolFeeRecipient": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373"
       },
       {
         "id": 16,
@@ -1218,7 +1218,7 @@
         "createdAt": "2026-09-18T17:49:11.000Z",
         "reservePool": "0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2",
         "protocolFeePips": 5000,
-        "protocolFeeRecipient": "0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9"
+        "protocolFeeRecipient": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373"
       },
       {
         "id": 17,
@@ -1406,12 +1406,12 @@
       "asset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
       "paused": false,
       "owner": "0x5f43E1e732c7aBdbbC73F9d1367320D9040C872a",
-      "totalAssetsRaw": "5508399",
-      "totalAssets": "5.508399",
+      "totalAssetsRaw": "5508479",
+      "totalAssets": "5.508479",
       "totalPooledSupplyRaw": "5288461",
       "totalPooledSupply": "5.288461",
       "brandCount": 11,
-      "residualNote": "0.219938 USDG of the reserve's balance is in excess of outstanding pooled supply; the remainder backs brand tokens still held by third parties and stays redeemable 1:1."
+      "residualNote": "0.220018 USDG of the reserve's balance is in excess of outstanding pooled supply; the remainder backs brand tokens still held by third parties and stays redeemable 1:1."
     },
     "factory": {
       "address": "0xbE2fb491C37F19E723F86A8cAcA625B4Ba75a5E7",

@@ -252,7 +252,7 @@ Two qualifications, both in your favor:
 ```solidity
 // AssetMarketFactory 0x22AA61c589B90731752236c07d1455D0065bfc79
 // MarketRouter      0x7553919210B172438853C3694Fd88fAfD4bE3Eb4
-// MarketLens        0x0a3d8332D949b4aE650f3aC6468620e403a50fF1
+// MarketLens        0x704E7a0e7864250303B05b25EabC2417CE99ceb6
 
 uint256 n = factory.marketCount();                 // 18 at head
 for (uint256 id = 1; id <= n; ++id) {
@@ -278,12 +278,12 @@ cannot get from the registry:
 | `protocolFeePips` | Live hook skim, hundredths of a bip. **5000 (0.50%) on all six pools** |
 | `redemptionFeeBps` | The reserve's live redemption fee. 20 on the sUSDai reserve |
 
-`route` is `view` on the deployed lens and needs no `PoolManager` unlock, so it is safe to batch
-into a multicall alongside your own reads. **The lens's four quote functions are not**: on the
-deployed bytecode `quoteBuy`, `quoteSell`, `quoteBuyExactOut` and `quoteSellExactOut` are
-`nonpayable`, so they require `eth_call` and cannot be `STATICCALL`ed from another contract. Size
-your quoting path accordingly; the details are in
-[Quoting and settlement](./QUOTING_AND_SETTLEMENT.md), which owns that topic.
+`route` is `view` and needs no `PoolManager` unlock, so it is safe to batch into a multicall
+alongside your own reads. **So are the four quote functions.** Since the 2026-09-20 redeploy
+`quoteBuy`, `quoteSell`, `quoteBuyExactOut` and `quoteSellExactOut` are `view` on the deployed
+bytecode, so the whole lens can be `STATICCALL`ed: from another contract, from a
+`staticcall`-based multicall, or from inside a `PoolManager.unlock` you have already opened.
+The details are in [Quoting and settlement](./QUOTING_AND_SETTLEMENT.md), which owns that topic.
 
 ### Events worth indexing
 

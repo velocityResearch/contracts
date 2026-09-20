@@ -5,7 +5,14 @@ import {PoolKey} from "v4-core/types/PoolKey.sol";
 
 /// @title IV4Quoter
 /// @notice The single-pool half of Uniswap's `V4Quoter`, written out against this repo's
-///         `v4-core` so `MarketLens` can call the deployed quoter.
+///         `v4-core`.
+///
+///         **This is test material, not production material.** `MarketLens` used to call the
+///         deployed quoter; it now replays the swap itself (`V4SwapSimulator`) so that a
+///         quote is a `view` an aggregator can `STATICCALL`. What the deployed quoter is still
+///         good for is telling us whether that simulation is right, which is what
+///         `test/markets/MarketLensSimulatorFork.t.sol` uses it for: Uniswap's unmodified
+///         contract is the reference, and any disagreement is our bug.
 ///
 ///         Hand-written for the reason `IPositionManagerV4` is: `lib/v4-periphery` vendors
 ///         its own v4-core and its own OpenZeppelin, and importing anything from it breaks the

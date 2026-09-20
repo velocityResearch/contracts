@@ -5,7 +5,9 @@
 # its own OpenZeppelin, and importing anything from it breaks the build for the whole project. So
 # they are built and broadcast from inside that checkout, unmodified — the same bytecode Uniswap
 # ships everywhere else, at whatever address CREATE gives it here. Both are ownerless and stateless
-# and need no wiring afterwards; `MarketLens` takes the quoter's address as a constructor argument.
+# and need no wiring afterwards. `MarketLens` no longer calls either of them — it replays the swap
+# itself so its quotes are `view` — but both stay deployed and documented, because they are what an
+# integrator checks our numbers against and what `MarketLensSimulatorFork` measures us by.
 #
 # Usage:  script/deploy-v4-lens.sh                 # compile, print constructor args, broadcast nothing
 #         script/deploy-v4-lens.sh --broadcast
@@ -53,6 +55,6 @@ deploy src/lens/StateView.sol StateView
 # `set -e`, so the documented dry run would report failure while having done its job.
 if [ -n "$BROADCAST" ]; then
   echo
-  echo "record both under core in the chain's deployments manifest, then pass V4_QUOTER to"
-  echo "script/DeployMarketLens.s.sol."
+  echo "record both under core in the chain's deployments manifest. MarketLens takes no quoter"
+  echo "argument; deploy it with script/DeployMarketLens.s.sol and ASSET_MARKET_FACTORY alone."
 fi

@@ -102,8 +102,18 @@ per-instance migration. That is the feature and the danger.
 (`test_oneBeaconUpgradeMovesEveryBrandAtOnce`,
 `test_brandsRegisteredAfterAnUpgradeUseTheNewImplementation`)
 
-`MarketLens` (`0x0a3d8332D949b4aE650f3aC6468620e403a50fF1`) has no owner and no state. It is
-replaced by deploying a new one and re-pointing readers, not upgraded.
+`MarketLens` (`0x704E7a0e7864250303B05b25EabC2417CE99ceb6`) has no owner and no state. It is
+replaced by deploying a new one and re-pointing readers, not upgraded. That is not a
+hypothetical: the address above is the second replacement. The first was forced when the
+hook's fee moved legs, and the second, on 2026-09-20, swapped the `V4Quoter` wrapper for an
+in-memory replay of `Pool.swap` over `extsload` state, which made every quote function `view`
+and therefore `STATICCALL`-able. The lens it replaced,
+`0x0a3d8332D949b4aE650f3aC6468620e403a50fF1`, is still live and still returns identical
+amounts; nothing expires it. So the cost of "not upgradeable" here is not risk, it is
+coordination: a reader that hardcoded the old address keeps getting correct-but-orphaned
+answers from a contract nobody is maintaining. Re-point readers from `core.marketLens` in
+`deployments/asset-markets-mainnet-v6.json` rather than from a constant, and treat a lens
+change as a release step with a consumer list, not as a silent redeploy.
 
 ---
 

@@ -59,7 +59,7 @@ ones that matter to a router:
 | `LiquidityZapper` V2 | `0x57FA92648c722Bb28A0d011f020685B952110a2D` | upgrade; not an aggregator surface |
 | Both yield adapters, and all four market beacons | see `deployments/mainnet-state.json` | upgrade |
 
-`MarketLens` `0x0a3d8332D949b4aE650f3aC6468620e403a50fF1` is ownerless and stateless, so it is
+`MarketLens` `0x704E7a0e7864250303B05b25EabC2417CE99ceb6` is ownerless and stateless, so it is
 outside this table by construction. It is also not upgradeable, which is why it was redeployed
 rather than upgraded when the hook's fee leg moved.
 
@@ -370,15 +370,14 @@ the pause-masked `feePipsFor(poolId)` if you want the rate that will apply after
 pause consequences, and the reserve is the one that actually refuses. `MarketLens.maxMint`
 returning 0 is the single read that covers both "paused" and "at the liability cap".
 
-One caveat on that citation. The deployed `MarketLens` at
-`0x0a3d8332D949b4aE650f3aC6468620e403a50fF1` is an earlier revision than
-`src/markets/MarketLens.sol` in this repository, so treat the line citation as the intent
-rather than as the deployed bytecode. `maxMint(address)` and `redeemableAssets(address)` are
-both `view` on the deployed contract, confirmed against its verified Sourcify ABI. If you want
-a read whose source you can pin exactly, use `SharedReservePool.paused()`,
-`liabilityCap()` and `totalPooledSupply()` directly; the lens only composes those three.
-See [Quoting and settlement](./QUOTING_AND_SETTLEMENT.md) for the full account of the lens
-revision difference.
+`maxMint(address)` is `view`, as is every other function on the lens, and
+`src/markets/MarketLens.sol` builds to the deployed bytecode at
+`0x704E7a0e7864250303B05b25EabC2417CE99ceb6` — verified `exact_match` on Sourcify — so the
+line citation and the runtime are the same thing. An earlier lens,
+`0x0a3d8332D949b4aE650f3aC6468620e403a50fF1`, is still live and is NOT this one; see
+[Quoting and settlement](./QUOTING_AND_SETTLEMENT.md) §4.1. If you want a read with no
+composition at all, `SharedReservePool.paused()`, `liabilityCap()` and `totalPooledSupply()`
+are the three values `maxMint` combines.
 
 ---
 
@@ -576,8 +575,9 @@ on its own; it is listed here so nothing is a surprise.
 12. **`deployments/mainnet-state.json` is a dated snapshot and drifts.** Its fee-recipient
     entries, for instance, predate the repointing of markets 13 through 16 to the Safe, which is
     live on chain. Read governance and balances from the chain, using the manifest only as an
-    address book. The regeneration script `sync-mainnet-state.mjs` lives in the application
-    repository rather than here, because it resolves its dependencies through that project.
+    address book. Regenerate it with `node script/sync-mainnet-state.mjs` from the application
+    repository, which is where that script lives because it resolves its dependencies through
+    that project.
 
 13. **USDG's issuer can pause or freeze the reserve asset, and that dominates everything else
     here.** USDG `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` is not a plain ERC20. It is an

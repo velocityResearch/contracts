@@ -50,7 +50,7 @@ The broader venue-neutral document is [../AGGREGATOR_INTEGRATION.md](../AGGREGAT
 | `ProtocolFeeHook` (flags `0x00CC`) | `0xc9932584c5154e4F58313a2e5423522E74e540Cc` |
 | Uniswap v4 `PoolManager` | `0x8366a39CC670B4001A1121B8F6A443A643e40951` |
 | `AssetMarketFactory` | `0x22AA61c589B90731752236c07d1455D0065bfc79` |
-| `MarketLens` | `0x0a3d8332D949b4aE650f3aC6468620e403a50fF1` |
+| `MarketLens` | `0x704E7a0e7864250303B05b25EabC2417CE99ceb6` |
 | `MarketRouter` | `0x7553919210B172438853C3694Fd88fAfD4bE3Eb4` |
 | sUSDai reserve (backs all six markets) | `0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2` |
 | Owner Safe, 2-of-3 | `0x28569c1716EF81f307d666A1EC08bDAE92AC0373` |
@@ -58,6 +58,12 @@ The broader venue-neutral document is [../AGGREGATOR_INTEGRATION.md](../AGGREGAT
 
 **AIUSD `0xE7BB388959d89f809BE24da16A1DaBa0dC58E596` is a brand dollar, not USDG.** It is a 1:1
 claim on the sUSDai reserve. The two have been confused before. See [MARKETS.md](./MARKETS.md).
+
+**`MarketLens` is the one row here that moves.** It is ownerless, stateless and not a proxy,
+so it is never upgraded in place; a revision is a new address, and the one above is the
+2026-09-20 redeploy that made every quote function `view`. Resolve it from `core.marketLens`
+in `deployments/asset-markets-mainnet-v6.json` rather than hardcoding it. Everything else in
+the table is either a proxy at a fixed address or Uniswap's own canonical deployment.
 
 ## How to submit
 

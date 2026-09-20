@@ -355,12 +355,17 @@ so a pinned block stops answering within minutes of being chosen. A live dry run
 is the only end-to-end proof this chain supports. Plan for that when reviewing: there is no way to
 make the aggregator half of this reproducible in CI without an archive node.
 
-`MarketLens` IS deployed, at `0x0a3d8332D949b4aE650f3aC6468620e403a50fF1`, and its source is
-verified. This paragraph used to say it was not and that the market leg was a placeholder; that
-stopped being true on 2026-09-19. Read the live address from
-`deployments/asset-markets-mainnet-v6.json` rather than from here, and confirm it against
-`deployments/mainnet-state.json`, which is generated from chain state and cannot go stale the
-way this sentence did.
+`MarketLens` IS deployed, at `0x704E7a0e7864250303B05b25EabC2417CE99ceb6`, and its source is
+verified `exact_match` on Sourcify. This paragraph used to say it was not and that the market
+leg was a placeholder; that stopped being true on 2026-09-19, and the address above is its
+2026-09-20 redeploy, on which every function including the four quote functions is `view` and
+therefore `STATICCALL`-able by a simulator. The predecessor
+`0x0a3d8332D949b4aE650f3aC6468620e403a50fF1` is still live and still returns identical
+amounts, but it wrapped Uniswap's `V4Quoter` and so could only be reached by a top-level
+`eth_call`. The lens is not upgradeable, so every revision is a new address rather than a new
+implementation behind a fixed one: read the live address from `core.marketLens` in
+`deployments/asset-markets-mainnet-v6.json` rather than from here, and confirm the code at it
+on chain, which cannot go stale the way this sentence did.
 
 ---
 
@@ -592,7 +597,7 @@ which nothing else in dex-lib would infer. This needs Kyber's executor to learn 
 
 `MarketLens` (`src/markets/MarketLens.sol`, written for the 0x work) is the on-chain surface both
 options read: `maxMint`, `redeemableAssets`, `brandForRedeem`, `route`. **It is deployed, at
-`0x0a3d8332D949b4aE650f3aC6468620e403a50fF1`** — ownerless and stateless — so the answer to "how
+`0x704E7a0e7864250303B05b25EabC2417CE99ceb6`** — ownerless and stateless — so the answer to "how
 is a simulator meant to learn the caps" is a live address rather than a promise. This paragraph
 used to say "deploy it before opening either PR"; that was done on 2026-09-19.
 
@@ -634,7 +639,7 @@ An earlier draft of this section listed "nothing in the v6 stack is verified" as
 
 Steps 1 and 2 of the original list are **done**, and are recorded here rather than dropped
 because the PR wants to cite them: `MarketLens` is deployed at
-`0x0a3d8332D949b4aE650f3aC6468620e403a50fF1`, the v6 contracts are verified on Sourcify as
+`0x704E7a0e7864250303B05b25EabC2417CE99ceb6`, the v6 contracts are verified on Sourcify as
 `exact_match`, and `MarketLens.quoteBuy` has been reconciled against Kyber's live quote at
 block 68,293,146. The reconciliation's answer — the pools are genuinely thin and the fallback
 understates the impact — is §1.1 and §3.5. What remains:
