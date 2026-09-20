@@ -1,15 +1,38 @@
 # sUSDai collateral — the cross-chain reserve group
 
-Status: the public integration stack is deployed on Base Sepolia and Arbitrum Sepolia. The source
-hashes, transaction receipts, controlled Across round trip, and final accounting are recorded in
-[`deployments/asset-markets-base-sepolia.json`](../deployments/asset-markets-base-sepolia.json).
-The Robinhood mainnet/Arbitrum mainnet production topology described below is not deployed.
-Research and rationale:
-[research/SUSDAI_CROSS_CHAIN_ISSUANCE_2026-09-13.md](research/SUSDAI_CROSS_CHAIN_ISSUANCE_2026-09-13.md).
+**Status, re-read from chain on 2026-09-20 at block 68,293,146.** This is **live on Robinhood
+Chain mainnet**, and it is the reserve every live market draws on. An earlier version of this
+line said the production topology "is not deployed"; that has not been true since the gen-6
+deploy.
+
+| | |
+|---|---|
+| `SharedReservePool` (sUSDai group) | `0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2` |
+| `SUSDaiYieldSource` | `0x460f319E43428387bff58ec262C992Ec7DA22fDc` |
+| `SUSDaiHub` (Arbitrum) | `0x740ddd200D9Ee605F25239Ba701bdd89161034b1` |
+| Keeper | `0x467Ca912943e85A0B0e72B7E1190129762481EEC` |
+| `ProtocolGuard` | `0x013D1974F8215a12280e6b9a33F9732277F38C0e`, not paused |
+| Owner of pool, adapter and every other handle on 4663 | Gnosis Safe `0x28569c1716EF81f307d666A1EC08bDAE92AC0373`, v1.4.1, 2-of-3 |
+| `redemptionFeeBps` | **20**, with no increase pending |
+| `liabilityCap` | 10,000,000 USDG |
+| `totalAssets` / redeemable | ~35,276 USDG, ~9.96M USDG of mint headroom |
+| Registered brands | 31 |
+
+**The cross-chain half has not been exercised yet.** `remoteValue` is 0,
+`remoteValueUpdatedAt` is unset, and both in-flight counters are 0: the entire position sits as
+USDG in the adapter's local buffer, so today the group is a 1:1 USDG reserve with a 20 bps exit
+fee and the bridge machinery below is armed but idle. Read that as the honest current state,
+not as a claim that the loop has run in production.
+
+The Base Sepolia and Arbitrum Sepolia integration stack is separate and still there: source
+hashes, transaction receipts, a controlled Across round trip and final accounting are recorded
+in [`deployments/asset-markets-base-sepolia.json`](../deployments/asset-markets-base-sepolia.json).
+`deployments/mainnet-state.json` is generated from chain state and is the authority for every
+address and parameter above.
 
 ## 1. What it is
 
-In the production design, a second `SharedReservePool` on Robinhood Chain — "the sUSDai group" — whose `IYieldSource` is
+A second `SharedReservePool` on Robinhood Chain — "the sUSDai group" — whose `IYieldSource` is
 not a lending market on this chain but a position on Arbitrum: USD.AI's sUSDai, held by a hub
 contract there and reached through Across. Everything a reader of
 [SHARED_RESERVE_POOL.md](../SHARED_RESERVE_POOL.md) already knows still holds: brands register
@@ -18,10 +41,12 @@ treasuries on a cumulative index, and redemption is never pausable. What changes
 sees behind `yieldSource.balanceOf(USDG)`: instead of Morpho shares it is a USDG buffer on this
 chain plus three counters a keeper maintains — USDG in flight out, USDC in flight back, and the
 hub's conservatively marked holdings. The bridge and swap costs of moving backing across show up
-as `lossCarryforward`; a redemption fee (planned 14 bps, capped at 100) is what repays them; NAV
+as `lossCarryforward`; a redemption fee (live at **20 bps**, capped at 100) is what repays them; NAV
 growth beyond that is yield to the brands exactly as before.
 
-This is a deliberate narrowing of the research document. That document's executive decision is
+This is a deliberate narrowing of the research document that preceded it. (That document is not
+in this repository, which is contracts and tests only; the section numbers below refer to it.)
+Its executive decision is
 to keep the *liability* on Arbitrum and bridge our own token to Robinhood (§1). We instead keep
 the liability here, where the reserve and every other brand already are, and move only the
 *collateral*, because the pool, its ledger, its beacons and its guard already exist on this chain
@@ -67,9 +92,9 @@ sequenceDiagram
     participant C as Curve sUSDai/USDC
     participant K as Keeper
     U->>P: redeem(token, 1_000, receiver, previewRedeem(1_000))
-    P->>A: withdraw(USDG, 998.6 + 1)
-    A-->>P: 998.6 USDG (fee 1.4 stays)
-    P-->>U: 998.6 USDG
+    P->>A: withdraw(USDG, 998.0 + 1)
+    A-->>P: 998.0 USDG (fee 2.0 stays, at the live 20 bps)
+    P-->>U: 998.0 USDG
     Note over A: buffer thin -> replenish
     K->>H: sellShares(shares, minUsdcOut >= sellFloor)
     H->>C: exchange(sUSDai -> USDC)
@@ -82,20 +107,30 @@ sequenceDiagram
 
 ## 3. Contracts
 
-| Contract | File | Chain | Role | Owner | Keeper rails |
+| Contract | File | Chain | Address | Owner | Keeper rails |
 |---|---|---|---|---|---|
-| `SharedReservePool` (group proxy) | `src/pool/SharedReservePool.sol` | 4663 | The reserve, the ledger, the redemption fee | Timelock `0x5f43…872a` | none |
-| `SUSDaiYieldSource` | `src/yield/SUSDaiYieldSource.sol` | 4663 | USDG buffer, `bridgeOut`, `sync`, position accounting | Timelock | `bridgeOut`, `sync` |
-| `SUSDaiHub` | `src/susdai/SUSDaiHub.sol` | 42161 | Holds USDC and sUSDai, swaps on Curve, `bridgeHome` | `HUB_OWNER` (hot key or multisig; the timelock is on the other chain) | `buyShares`, `sellShares`, `bridgeHome` |
-| `AcrossBridger` | `src/susdai/AcrossBridger.sol` | both | Shared `depositV3` base: fixed tokens, chain and recipient; keeper supplies the quote | — | — |
-| `IAcrossSpokePool`, `ICurveStableSwapNG`, `IStakedUSDai` | `src/interfaces/` | — | The slices of the three external contracts we call | — | — |
-| `SUSDaiAddresses` | `script/SUSDaiAddresses.sol` | — | Constants for both chains, read back 2026-09-13 | — | — |
+| `SharedReservePool` (group proxy) | `src/pool/SharedReservePool.sol` | 4663 | `0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2` | Safe `0x2856…0373` | none |
+| `SUSDaiYieldSource` | `src/yield/SUSDaiYieldSource.sol` | 4663 | `0x460f319E43428387bff58ec262C992Ec7DA22fDc` | Safe `0x2856…0373` | `bridgeOut`, `sync` |
+| `SUSDaiHub` | `src/susdai/SUSDaiHub.sol` | 42161 | `0x740ddd200D9Ee605F25239Ba701bdd89161034b1` | `HUB_OWNER`, a separate key on Arbitrum: the Safe is on the other chain and cannot act there | `buyShares`, `sellShares`, `bridgeHome` |
+| `AcrossBridger` | `src/susdai/AcrossBridger.sol` | both | base contract, not deployed alone | — | — |
+| `IAcrossSpokePool`, `ICurveStableSwapNG`, `IStakedUSDai` | `src/interfaces/` | — | the slices of the three external contracts we call | — | — |
+| `SUSDaiAddresses` | `script/SUSDaiAddresses.sol` | — | constants for both chains, read back 2026-09-13 | — | — |
+
+**There is no 48-hour timelock.** An earlier version of this table named one,
+`0x5f43…872a`, as the owner of the pool and the adapter. Ownership migrated to the 2-of-3 Gnosis
+Safe `0x28569c1716EF81f307d666A1EC08bDAE92AC0373` and **nothing replaced the delay**: every
+`_authorizeUpgrade` in the stack is a bare `onlyOwner`, so the Safe can upgrade the pool, the
+adapter or anything else in the transaction that proposes it. Two of three signers instead of
+one hot key is the whole of the improvement. `docs/audit-history.md` carries this as
+A3-CRITICAL-1, still open and deliberately accepted.
 
 The live brand-token and treasury beacons from the v4 deployment are reused, so a brand registered
 on this pool runs the same `PooledBrandToken`/`PoolBrandTreasury` code as the USDG group and
 upgrades with it. The market stack is shared rather than duplicated: one `AssetMarketFactory`,
 one `MarketRouter` and one `ProtocolFeeHook` serve every reserve the factory has approved, and a
-market records which reserve its brand draws on. So a coin backed by this group launches with
+market records which reserve its brand draws on. **All six live markets (ids 13 to 18) draw on
+this reserve**, so this is the shape in production and not a plan. A coin backed by this group
+launches with
 its pool in one `createMarket` call, the same as a USDG-group coin, and both groups' markets
 share one id space. What differs is the peg's cost, not the plumbing: minting here is bounded by
 `liabilityCap`, redemption retains `redemptionFeeBps` and is paid out of the local buffer.
@@ -106,14 +141,37 @@ share one id space. What differs is the peg's cost, not the plumbing: minting he
 its own idle balance, is
 
 ```
-position = usdg.balanceOf(adapter) + outboundInFlight + inboundInFlight + remoteValue
+arrived  = max(0, local − localAtLastSettlement)
+inFlight = max(0, outboundExpected + inboundInFlight − arrived)
+position = local + inFlight + remoteValue
 ```
 
-Only the first term is a balance this chain can read. `bridgeOut` moves USDG from the first term
-to the second; a `sync` with `outboundAcked` moves it from the second into whatever `remoteValue`
-the keeper reports; `inboundStarted` moves it from `remoteValue` into `inboundInFlight`; and
-`inboundLanded` retires `inboundInFlight` because the USDG is now, physically, in the first term.
-The keeper can only ever *move* value between buckets or *lower* it; raising it is bounded (below).
+where `local` is `usdg.balanceOf(adapter)` (`SUSDaiYieldSource._position`). Only `local` is a
+balance this chain can read. `bridgeOut` moves USDG out of it and into the outbound leg; a
+`sync` with `outboundAcked` moves that leg into whatever `remoteValue` the keeper reports;
+`inboundStarted` moves value from `remoteValue` into `inboundInFlight`; and `inboundLanded`
+retires `inboundInFlight` because the USDG is now, physically, in `local`. The keeper can only
+ever *move* value between buckets or *lower* it; raising it is bounded (below).
+
+Two refinements that an earlier and simpler version of this identity — a plain sum of the four
+buckets — got wrong, both worth understanding because they are the difference between honest
+accounting and free money:
+
+- **The outbound leg is valued at what will arrive, not what was sent.** `outboundExpected`
+  accumulates the Across quote's `outputAmount`, while `outboundInFlight` counts the USDG
+  escrowed. Valuing the leg at its input would overstate the position by the bridge fee for the
+  whole flight and hand the keeper exactly enough growth allowance to never account for that
+  fee, which defeats the one thing `lossCarryforward` exists to do. The fee is booked as a cost
+  when it is incurred.
+- **An unexplained increase in `local` is read as a leg arriving.** An Across fill credits the
+  balance the instant a relayer fills it, but the matching counter is only cleared by a later
+  `sync`. A plain sum therefore double-counts that leg for a whole keeper tick, the pool credits
+  the overstatement to its monotonic yield index, and `claimYield` pays it out with no clawback
+  — making a public Across fill free money for anyone watching for it. So `localAtLastSettlement`
+  tracks the balance the adapter can account for, and anything above it is netted off the
+  in-flight counters first. A genuine donation is recognised one settlement late, which is the
+  right way round: understating costs a brand some yield, overstating pays yield out of somebody
+  else's principal.
 
 **Costs become `lossCarryforward`, fees repay it.** When the keeper syncs a `remoteValue` that is
 lower than the USDG it acknowledges — 8,000 USDG out, 7,995.2 USDC delivered, 7,990 conservative
@@ -144,17 +202,35 @@ the next accrual sees `totalAssets() - lastAccrualAssets = fee`, which `_accrueG
 **The growth cap.** A `sync` may set
 
 ```
-remoteValue' + inboundStarted <= remoteValue + outboundAcked + inboundRefunded
-                                + remoteValue * maxRemoteGrowthBpsPerDay * elapsed / (10_000 * 1 days)
+remoteValue' + inboundStarted <= remoteValue
+                                + outboundAcked * outboundExpected / outboundInFlight
+                                + inboundRefunded
+                                + max(remoteValue * maxRemoteGrowthBpsPerDay / 10_000,
+                                      maxRemoteGrowthAbsolutePerDay) * elapsed / 1 days
 ```
 
-or it reverts `RemoteValueAboveCap(reported, allowed)`. `elapsed` is the time since the last sync
-(the first sync gets no growth term). Decreases are unbounded. `outboundRefunded` adds nothing to
-the cap because that USDG is back in the local balance, where the pool can already see it.
-`inboundStarted` is on the left because value moving from `remoteValue` into `inboundInFlight`
-is still value the keeper is asserting exists. At the default 50 bps/day a stolen key can inflate
-the position by at most 0.5 % per day beyond what was really bridged, and every wei of that shows
-up as claimable brand yield, which is the only thing inflation buys.
+or it reverts `RemoteValueAboveCap(reported, allowed)`. Four details, each of which exists
+because its absence was a finding:
+
+- The acknowledged outbound is credited at the quote's OUTPUT, pro rata, not at its input — the
+  same reason `outboundExpected` exists above.
+- `elapsed` is the time since the last sync, **clamped to `MAX_GROWTH_WINDOW` = 7 days**. Without
+  the clamp a dormant deployment accumulates enough headroom to double `remoteValue` in one
+  report; real yield earned over a longer outage is recognised over successive reports instead,
+  which is the point of a rate cap. The first sync gets no growth term at all.
+- The per-day allowance takes the **larger** of the bps term and
+  `maxRemoteGrowthAbsolutePerDay`. The bps term is proportional to the previous `remoteValue`,
+  which makes zero an absorbing state: once a report lands the value at zero, nothing could ever
+  raise it again and everything the hub holds would be written off for good. The absolute floor
+  is the way back out. `setRemoteValue` (owner, break-glass) is the other.
+- Decreases are unbounded. `outboundRefunded` adds nothing to the cap, because that USDG is back
+  in the local balance where the pool can already see it. `inboundStarted` is on the left because
+  value moving from `remoteValue` into `inboundInFlight` is still value the keeper is asserting
+  exists.
+
+At the default 50 bps/day a stolen key can inflate the position by at most 0.5 % per day beyond
+what was really bridged, and every wei of that shows up as claimable brand yield, which is the
+only thing inflation buys.
 
 **The +1 wei recall.** `SharedReservePool._recallIfNeeded` asks the yield source for
 `shortfall + 1`, a habit inherited from Morpho's floor-division rounding. `SUSDaiYieldSource.withdraw`
@@ -175,25 +251,48 @@ only see when the keeper's next sync reports a lower Curve realisation.
 `amount - amount * redemptionFeeBps / 10_000`: the payout when the reserve can deliver in full.
 `redeem(token, amount, receiver, minAssetsOut)` burns first, pays `min(owed, idle after recall)`,
 and reverts `InsufficientPayout(payout, minimum)` if that is below `minAssetsOut`. A redeemer who
-passes `previewRedeem(amount)` gets par-less-fee or nothing; one who passes 0 (the three-argument
-overload) accepts whatever the buffer holds and eats the difference as a shortfall that retires
-`lossCarryforward` rather than being owed back. Note for integrators: compute `previewRedeem` into a
-local before any `vm.prank`/impersonation in tests, because the prank is consumed by the view
-call.
+passes `previewRedeem(amount)` gets par-less-fee or nothing.
+
+**The three-argument overload is no longer the lenient one.** It used to accept whatever the
+buffer held and book the difference as a shortfall against `lossCarryforward`. It now derives
+its own floor — par less the live `redemptionFeeBps`, which is exactly what `previewRedeem`
+returns — and reverts `InsufficientPayout` rather than under-paying
+(`src/pool/SharedReservePool.sol:508-510`). There is therefore no overload that silently
+absorbs a thin buffer any more, and an integrator should still prefer the four-argument form,
+because it bounds the payout at a number the caller chose rather than at whatever fee happens to
+be live when the transaction lands.
+
+Note for integrators: compute `previewRedeem` into a local before any `vm.prank`/impersonation
+in tests, because the prank is consumed by the view call.
 
 ## 5. Keeper responsibilities
 
-The keeper is one hot key, set on both contracts, and a service (`services/susdai-keeper/`).
-Every call it makes is bounded on chain (§6); its job is timing and reporting.
+The keeper is one hot key, `0x467Ca912943e85A0B0e72B7E1190129762481EEC`, set on both contracts,
+driven by an off-chain service that lives in the application repository rather than this one.
+Every call it makes is bounded on chain (§6); its job is timing and reporting. **It has not run
+a production bridge yet:** `remoteValue` is zero and both in-flight counters are zero, so the
+sequences below describe armed machinery, not observed mainnet behaviour.
 
 **Mint side (USDG has accumulated in the adapter).**
 
 1. Fetch an Across quote for `amount` USDG → USDC, depositor = adapter, recipient = hub (see the
    API call below).
-2. `adapter.bridgeOut(amount, quote)`. Reverts unless the caller is keeper or owner, the guard has
-   not paused the adapter, `amount <= local`, `local - amount >= position * minLocalBufferBps / 10_000`,
-   and `quote.outputAmount >= amount - amount * maxBridgeFeeBps / 10_000`. Emits `Bridged` and
-   `BridgedOut(depositId, amount, outputAmount)`; `outboundInFlight += amount`.
+2. `adapter.bridgeOut(amount, quote)`. Reverts unless the caller is the keeper, the guard has
+   not paused the adapter, `maxBridgeAmount != 0 && amount <= maxBridgeAmount`
+   (`BridgeAmountAboveCap`), `amount <= local` (`InsufficientLocalBalance`), the rolling window
+   still has room (`BridgeBudgetExhausted`),
+   `local - amount >= max(position * minLocalBufferBps / 10_000, minLocalBufferAbsolute)`
+   (`LocalBufferBreached`), and
+   `quote.outputAmount >= amount - amount * maxBridgeFeeBps / 10_000`
+   (`BridgeOutputBelowFloor`). Emits `BridgedOut(depositId, amount, outputAmount)`;
+   `outboundInFlight += amount` and `outboundExpected += quote.outputAmount`.
+
+   **Both buffer floors matter and the absolute one is the real protection.** The bps floor is
+   a share of `_position()`, which includes the keeper-written `remoteValue` — so a keeper that
+   reports a low value shrinks its own floor and can then bridge out almost the whole redemption
+   buffer. A token figure cannot be moved by any report, and tokens are the unit redemption
+   demand is denominated in. Size `minLocalBufferAbsolute` to real flow; zero leaves only the
+   bps floor.
 3. Wait for the fill: poll `usdc.balanceOf(hub)` on Arbitrum, or watch the Arbitrum SpokePool's
    fill event for `depositId`. Expected fill time was ~2 s when measured.
 4. `hub.buyShares(usdcIn, minSharesOut)` with `minSharesOut = max(hub.buyFloor(usdcIn), hub.quoteBuy(usdcIn) * (1 - tolerance))`.
@@ -217,8 +316,10 @@ Every call it makes is bounded on chain (§6); its job is timing and reporting.
 
 **Periodic NAV sync.** At least daily, and more often than `maxRemoteGrowthBpsPerDay` needs it to
 be: `adapter.sync({remoteValue: hub.conservativeValue(), everything else 0})`. sUSDai's NAV rises a
-few bps a day; the cap is 50, so a sync that has been missed for a week still fits, but the
-brands' yield is stale until it lands, and `remoteValueUpdatedAt` is what monitoring watches.
+few bps a day and the cap is 50, so a missed day is easily absorbed — but **the allowance stops
+accruing at `MAX_GROWTH_WINDOW` = 7 days**, so an outage longer than a week cannot be caught up
+in one report and has to be recognised over successive ones. Brands' yield is stale until a
+sync lands, and `remoteValueUpdatedAt` is what monitoring watches.
 
 **Refunds.** A deposit nobody fills by `fillDeadline` is refunded by Across's next root bundle,
 in the input token, to the depositor, on the origin chain.
@@ -250,32 +351,65 @@ immediately before sending. Observed cost ~6 bps each way, `expectedFillTime` ~2
 
 ## 6. Trust and limits
 
-**Two keys.** The timelock (48 h, `0x5f43E1e732c7aBdbbC73F9d1367320D9040C872a`) owns the pool and
-the adapter and is the only thing that can change a limit, rotate the keeper, or set the fee. The
-hub's owner is a separate key on Arbitrum — the timelock cannot act there — and should be a
-multisig; it can pause the hub, rotate its keeper, change its limits and `homeReceiver`. The
-keeper is a hot key with no custody: it can move value between the protocol's own contracts and
-report, and nothing else.
+**Two owners and a keeper.** The Gnosis Safe `0x28569c1716EF81f307d666A1EC08bDAE92AC0373`
+(v1.4.1, 2-of-3) owns the pool and the adapter on 4663 and is the only thing that can change a
+limit, rotate the keeper, set the fee, or reach for the break-glass calls below. The hub's owner
+is a separate key on Arbitrum — the Safe cannot act there, and no cross-chain governance is
+wired — and should be a multisig; it can pause the hub, rotate its keeper, change its limits and
+`homeReceiver`. The keeper is a hot key with no custody: it can move value between the
+protocol's own contracts and report, and nothing else. A third key, the guardian
+`0xc1d844d6478e450E62293882d2d6739c4a8693F9`, can pause and cannot resume.
 
-**The owner can also replace the code.** The pool, the adapter and the hub are UUPS proxies, so
-every bound in the table below is enforced by an implementation their owner can swap. On the
-Base Sepolia integration that swap is a single transaction from the deployer, by policy; on a
-mainnet deployment it is whatever that stack's owner is, which is the argument for that owner
-being a timelock or a multisig rather than one hot key. Read the table as "what the deployed
+An earlier version of this section described a 48-hour timelock as the owner. **There is no
+timelock.** See §3.
+
+**The owner can also replace the code.** The pool, the adapter and the hub are UUPS proxies with
+bare `onlyOwner` upgrade authorisation, so every bound in the table below is enforced by an
+implementation their owner can swap in one transaction. Read the table as "what the deployed
 code enforces against the keeper", not as "what cannot be changed".
+
+**Break glass, owner only.** `adapter.setRemoteValue` overwrites the hub's reported value;
+`adapter.resetInFlight` overwrites the two counters; `adapter.seedLocalBaseline` declares the
+whole local balance accounted for. None of them grants the owner anything an upgrade would not,
+and that is the argument for having them: they turn a 3am recovery into one transaction instead
+of a shipped implementation. They exist because `sync` can only raise `remoteValue` from where
+it is, so a value reported at zero — by a stolen key, or by an honest keeper reading a collapsed
+oracle — would otherwise write the position off with no way back.
 
 | Bound | Contract | Default | Cap | Enforced on | Error |
 |---|---|---|---|---|---|
-| `maxBridgeFeeBps` | adapter | 20 | 100 | `bridgeOut` quote floor | `BridgeOutputBelowFloor(outputAmount, floor)` |
+| `maxBridgeFeeBps` | adapter | 20 | 100 (`MAX_BRIDGE_FEE_BPS`) | `bridgeOut` quote floor | `BridgeOutputBelowFloor(outputAmount, floor)` |
 | `minLocalBufferBps` | adapter | 1 000 (10 %) | 10 000 | `bridgeOut` | `LocalBufferBreached(remaining, required)` |
+| `minLocalBufferAbsolute` | adapter | 0 | none | `bridgeOut`, alongside the bps floor | `LocalBufferBreached` |
+| `maxBridgeAmount` | adapter | 0 = disabled | none | one `bridgeOut` | `BridgeAmountAboveCap(amount, maximum)` |
+| `bridgeBudgetPerWindow` / `bridgeWindow` | adapter | 0 = disabled | budget <= 2^128−1 | outbound notional per rolling window | `BridgeBudgetExhausted(amount, remaining)` |
 | `maxRemoteGrowthBpsPerDay` | adapter | 50 | 10 000 | `sync` | `RemoteValueAboveCap(reported, allowed)` |
-| `maxSwapSlippageBps` | hub | 50 | 500 | `buyShares`/`sellShares` min-out | `MinOutBelowFloor(minOut, floor)` |
+| `maxRemoteGrowthAbsolutePerDay` | adapter | 0 | none | `sync`, as a floor under the bps allowance | `RemoteValueAboveCap` |
+| `MAX_GROWTH_WINDOW` | adapter | 7 days, constant | — | caps `elapsed` in `sync` | — |
+| `maxSwapSlippageBps` | hub | **15** | 500 (`MAX_SWAP_SLIPPAGE_BPS`) | `buyShares`/`sellShares` min-out | `MinOutBelowFloor(minOut, floor)` |
 | `maxBridgeFeeBps` | hub | 20 | 100 | `bridgeHome` quote floor | `BridgeOutputBelowFloor` |
-| `redemptionFeeBps` | pool | 0 (planned 14) | 100 | every `redeem` | `FeeTooHigh(feeBps, maximum)` on set |
+| `maxBridgeAmount` | hub | 0 = disabled | none | one `bridgeHome` | `BridgeAmountAboveCap` |
+| swap budget / window | hub | 0 = disabled | — | swap and bridge notional per window | `SwapBudgetExhausted(notional, remaining)` |
+| share-price band | hub | set at init | — | every NAV read | `SharePriceOutOfBand(price, minWad, maxWad)` |
+| `redemptionFeeBps` | pool | **20 live** | 100 (`MAX_REDEMPTION_FEE_BPS`) | every `redeem` | `FeeTooHigh(feeBps, maximum)` on set |
+
+**Both zero-is-disabled defaults are deliberate.** `maxBridgeAmount` and `bridgeBudgetPerWindow`
+fail closed, including for a proxy upgraded from an implementation that predates those slots: it
+reads zero and stops bridging loudly until the owner sets a budget. A single-deposit ceiling
+alone was not enough, because nothing bounded N deposits in one block.
+
+**A raise to `redemptionFeeBps` is announced an hour ahead.** `setRedemptionFee` above the live
+value records it as pending and sets `redemptionFeeEffectiveAt` to `FEE_INCREASE_DELAY` (3,600
+seconds) out; a permissionless `commitRedemptionFee()` applies it after that, re-checking the
+cap. A decrease is immediate and cancels anything pending. `previewRedeem` and both `redeem`
+overloads read the LIVE fee and never the pending one, so a quote is good for at least an hour;
+`redemptionFeeEffectiveAt() == 0` is the single read that says nothing is scheduled. As with
+every other bound here, the owner can upgrade the delay away in one transaction.
 
 **Pause semantics.**
 
-- `ProtocolGuard` (guardian may pause instantly; only the timelock may unpause) stops
+- `ProtocolGuard` `0x013D1974F8215a12280e6b9a33F9732277F38C0e` (the guardian may pause
+  instantly and cannot resume; only the owner may unpause) stops
   `pool.mint`, `pool.swap`, `pool.claimYield`, `pool.deployIdle` and `adapter.bridgeOut`. Pausing
   halts new exposure and yield payouts, not exits.
 - `pool.redeem` has no pause. Holders can always exit against whatever the buffer holds, and
@@ -284,10 +418,12 @@ code enforces against the keeper", not as "what cannot be changed".
   answering, so `sync` keeps working: a paused hub must not blind the reserve.
 
 **What a compromised keeper can do.** Bridge USDG to the hub (only the hub) at a quote within
-20 bps, down to the 10 % buffer. Churn USDC and sUSDai through Curve at up to 50 bps below NAV per
-leg. Bridge USDC home (only to the adapter). Overstate `remoteValue` by up to 50 bps per day, which
-lets brand treasuries claim yield that does not exist, at that rate. Refuse to act, which leaves
-the buffer to drain and redemptions to revert for anyone passing `minAssetsOut`.
+20 bps, subject to the single-deposit ceiling, the rolling window budget and both buffer floors.
+Churn USDC and sUSDai through Curve at up to 15 bps below NAV per leg, within the hub's own
+window budget. Bridge USDC home (only to the adapter). Overstate `remoteValue` by up to 50 bps
+per day, or by `maxRemoteGrowthAbsolutePerDay` if that is larger, which lets brand treasuries
+claim yield that does not exist at that rate. Refuse to act, which leaves the buffer to drain
+and redemptions to revert.
 
 **What it cannot do.** Send any token anywhere but the two protocol contracts. Take a quote below
 the fee floor. Sell below the NAV floor. Invent backing faster than the cap. Change a limit, the
@@ -304,9 +440,15 @@ fee, or its own successor. Stop a redemption.
 | Fork probe, same block | 10,000 USDC → 8,990.81 sUSDai → sell → 9,998.000002 USDC: **2 bps round trip** |
 | `conservativeValue()` right after that buy | 9,954.76 USDC (deposit NAV 1.112174e18, redemption NAV 1.107215e18: **~44 bps gap**) |
 
-So a full USDG → USDC → sUSDai → USDC → USDG round trip costs 6 + 2 + 6 = 14 bps, which is the
-fee default. It is a cost recovery, not a margin: every redemption pays exactly the friction it
-will eventually cause, and the pool's accounting nets the two to zero over time. The 44 bps NAV
+So a full USDG → USDC → sUSDai → USDC → USDG round trip measured 6 + 2 + 6 = 14 bps on that
+date. **The live fee is 20 bps, not 14.** The extra 6 bps is headroom over a measurement taken
+once, on one day, at one size, on a route with two bridge legs whose cost is a relayer's quote
+rather than a constant. It is still cost recovery rather than a margin: every redemption pays
+roughly the friction it will eventually cause, and the pool's accounting nets the two toward
+zero over time — an over-recovery simply lands in `cumulativeYieldPerToken` and goes to the
+brands, exactly as yield does. Re-measure before treating 14 as the number the fee should track.
+
+The 44 bps NAV
 gap is *not* charged — it is a valuation haircut the pool carries as `lossCarryforward` from the
 first sync, is repaid by sUSDai's own NAV growth as the keeper syncs it, and would be
 realised only if the position had to exit through the native queue. Raising the fee toward the
@@ -324,6 +466,12 @@ manifest as the address and receipt authority; the commands below remain the pro
 
 ### Production deployment
 
+**This already ran; the addresses are in §3 and in `deployments/mainnet-state.json`.** The
+steps are kept because they are the runbook for a redeploy or a second group, not because
+anything here is pending. Two things in them have changed since they were first written and are
+corrected below: the owner is the Safe rather than a timelock, and the live `ProtocolGuard` is
+`0x013D1974F8215a12280e6b9a33F9732277F38C0e`.
+
 Step 1, Arbitrum. Dry run first, then broadcast. `HUB_OWNER` and `SUSDAI_KEEPER` default to the
 deployer.
 
@@ -335,14 +483,19 @@ PRIVATE_KEY=0x... forge script script/DeploySUSDaiHub.s.sol --rpc-url https://ar
 PRIVATE_KEY=0x... HUB_OWNER=<multisig> SUSDAI_KEEPER=<keeper> forge script script/DeploySUSDaiHub.s.sol --rpc-url https://arb1.arbitrum.io/rpc --broadcast --slow
 ```
 
-Step 2, Robinhood. Takes the hub address. The four governance addresses are the live v4 values.
+Step 2, Robinhood. Takes the hub address. Note the two mandatory `uint` variables that are easy
+to miss: the script `require`s `LIABILITY_CAP` and `MAX_BRIDGE_AMOUNT` to be nonzero and refuses
+to run without them, even though it does not apply either (see step 4). `REDEMPTION_FEE_BPS`
+defaults to 14 and only affects the recipe the script prints. The `TIMELOCK` variable is simply
+the owner address; it kept its name from when governance was a timelock, and the value below is
+the Safe.
 
 ```bash
-PRIVATE_KEY=0x... SUSDAI_HUB=<hub> SUSDAI_KEEPER=<keeper> TIMELOCK=0x5f43E1e732c7aBdbbC73F9d1367320D9040C872a PROTOCOL_GUARD=0x88eeA21D246DF8aa4Ca071532cB06d4f66D45f65 BRAND_TOKEN_BEACON=0xc7433cD04Ce4B5b326602EFeD3bBA68d29aC4Bde TREASURY_BEACON=0x8AB0789D62a06546bfF51Be28ecaC696eb817897 forge script script/DeploySUSDaiGroup.s.sol --rpc-url https://rpc.mainnet.chain.robinhood.com
+PRIVATE_KEY=0x... SUSDAI_HUB=<hub> SUSDAI_KEEPER=<keeper> TIMELOCK=0x28569c1716EF81f307d666A1EC08bDAE92AC0373 PROTOCOL_GUARD=0x013D1974F8215a12280e6b9a33F9732277F38C0e BRAND_TOKEN_BEACON=0x1964b405C09CF252d835A80556536C86dcbE105F TREASURY_BEACON=0xf8b758dfb9d22448Ab13C7FcC1f23b75A998C34E REDEMPTION_FEE_BPS=20 LIABILITY_CAP=10000000000000 MAX_BRIDGE_AMOUNT=10000000000000 forge script script/DeploySUSDaiGroup.s.sol --rpc-url https://rpc.mainnet.chain.robinhood.com
 ```
 
 ```bash
-PRIVATE_KEY=0x... SUSDAI_HUB=<hub> SUSDAI_KEEPER=<keeper> TIMELOCK=0x5f43E1e732c7aBdbbC73F9d1367320D9040C872a PROTOCOL_GUARD=0x88eeA21D246DF8aa4Ca071532cB06d4f66D45f65 BRAND_TOKEN_BEACON=0xc7433cD04Ce4B5b326602EFeD3bBA68d29aC4Bde TREASURY_BEACON=0x8AB0789D62a06546bfF51Be28ecaC696eb817897 forge script script/DeploySUSDaiGroup.s.sol --rpc-url https://rpc.mainnet.chain.robinhood.com --broadcast --slow
+PRIVATE_KEY=0x... SUSDAI_HUB=<hub> SUSDAI_KEEPER=<keeper> TIMELOCK=0x28569c1716EF81f307d666A1EC08bDAE92AC0373 PROTOCOL_GUARD=0x013D1974F8215a12280e6b9a33F9732277F38C0e BRAND_TOKEN_BEACON=0x1964b405C09CF252d835A80556536C86dcbE105F TREASURY_BEACON=0xf8b758dfb9d22448Ab13C7FcC1f23b75A998C34E REDEMPTION_FEE_BPS=20 LIABILITY_CAP=10000000000000 MAX_BRIDGE_AMOUNT=10000000000000 forge script script/DeploySUSDaiGroup.s.sol --rpc-url https://rpc.mainnet.chain.robinhood.com --broadcast --slow
 ```
 
 Step 3, point the hub at the adapter (hub owner key, Arbitrum):
@@ -351,24 +504,43 @@ Step 3, point the hub at the adapter (hub owner key, Arbitrum):
 cast send <hub> 'setHomeReceiver(address)' <adapter> --rpc-url https://arb1.arbitrum.io/rpc --private-key $PRIVATE_KEY
 ```
 
-Step 4, schedule the fee. The pool is owned by the timelock from birth, so this is a governance
-call with the full 48 h delay. `<salt>` is any bytes32; use the same one in both calls.
+Step 4, arm the group. The script deliberately applies none of these: a fresh pool comes up
+with `redemptionFeeBps`, `liabilityCap` and `maxBridgeAmount` all at zero, which means no fee,
+no mint capacity and no outbound bridging. Three owner calls turn it on, and they belong in
+**one Safe batch**:
 
-```bash
-cast send 0x5f43E1e732c7aBdbbC73F9d1367320D9040C872a 'schedule(address,uint256,bytes,bytes32,bytes32,uint256)' <pool> 0 $(cast calldata 'setRedemptionFee(uint16)' 14) 0x0000000000000000000000000000000000000000000000000000000000000000 $(cast keccak 'susdai-group-fee-1') 172800 --rpc-url https://rpc.mainnet.chain.robinhood.com --private-key $PRIVATE_KEY
-```
+- `pool.setRedemptionFee(20)`
+- `pool.setLiabilityCap(10000000000000)`
+- `adapter.setMaxBridgeAmount(...)`
 
-```bash
-cast send 0x5f43E1e732c7aBdbbC73F9d1367320D9040C872a 'execute(address,uint256,bytes,bytes32,bytes32)' <pool> 0 $(cast calldata 'setRedemptionFee(uint16)' 14) 0x0000000000000000000000000000000000000000000000000000000000000000 $(cast keccak 'susdai-group-fee-1') --rpc-url https://rpc.mainnet.chain.robinhood.com --private-key $PRIVATE_KEY
-```
+**Ignore the `schedule`/`execute` recipes the script prints.** It still emits timelock-shaped
+calldata and still says "0 until the timelock call executes", because its own comments predate
+the custody migration. There is no timelock. `deployments/safe-batches/README.md` describes how
+a batch is built and executed against the Safe, and the three batches already in that directory
+are worked examples.
+
+One asymmetry to plan around, because it is easy to forget and leaves a raise silently
+unapplied: a **decrease** to `redemptionFeeBps` applies in the transaction that makes it, but an
+**increase** does not. It records the value as pending with
+`redemptionFeeEffectiveAt = now + 3600`, and somebody — anybody, the call is permissionless —
+must then send `commitRedemptionFee()` at or after that time. Until they do, `previewRedeem` and
+both `redeem` overloads still answer with the old fee. On a fresh pool the first `setRedemptionFee`
+is a raise from zero, so it needs the commit too.
 
 ```bash
 cast call <pool> 'redemptionFeeBps()(uint16)' --rpc-url https://rpc.mainnet.chain.robinhood.com
 ```
 
-Step 5, start the keeper only once that reads 14. Until then the group is fee-free and every
-round trip is a cost the group eats; USDG minted in the window sits in the adapter's buffer
-untouched, which is safe. See `services/susdai-keeper/` for the service and its env.
+```bash
+cast call <pool> 'redemptionFeeEffectiveAt()(uint64)' --rpc-url https://rpc.mainnet.chain.robinhood.com
+```
+
+Step 5, set the keeper's remaining limits before starting it. `bridgeBudgetPerWindow` also
+defaults to zero and also disables outbound bridging, so `setBridgeBudget(budget, window)`
+belongs in the same batch as step 4. Set `minLocalBufferAbsolute` there too: the bps floor alone
+is a share of `_position()`, a figure the keeper itself writes. Only then start the keeper.
+Until it runs, the group is a plain 1:1 USDG reserve and USDG sits in the adapter's buffer
+untouched, which is safe and is the current mainnet state.
 
 ### Monitoring
 
@@ -377,6 +549,9 @@ cast call <adapter> 'availableLiquidity()(uint256)' --rpc-url https://rpc.mainne
 cast call <adapter> 'outboundInFlight()(uint256)' --rpc-url https://rpc.mainnet.chain.robinhood.com
 cast call <adapter> 'inboundInFlight()(uint256)' --rpc-url https://rpc.mainnet.chain.robinhood.com
 cast call <adapter> 'remoteValue()(uint256)' --rpc-url https://rpc.mainnet.chain.robinhood.com
+cast call <adapter> 'outboundExpected()(uint256)' --rpc-url https://rpc.mainnet.chain.robinhood.com
+cast call <adapter> 'localAtLastSettlement()(uint256)' --rpc-url https://rpc.mainnet.chain.robinhood.com
+cast call <adapter> 'bridgeBudgetRemaining()(uint256)' --rpc-url https://rpc.mainnet.chain.robinhood.com
 cast call <adapter> 'remoteValueUpdatedAt()(uint64)' --rpc-url https://rpc.mainnet.chain.robinhood.com
 cast call <pool> 'totalAssets()(uint256)' --rpc-url https://rpc.mainnet.chain.robinhood.com
 cast call <pool> 'totalPooledSupply()(uint256)' --rpc-url https://rpc.mainnet.chain.robinhood.com
@@ -388,7 +563,8 @@ cast call <hub> 'conservativeValue()(uint256)' --rpc-url https://arb1.arbitrum.i
 ```
 
 Invariants to alert on: `totalAssets() >= totalPooledSupply` (solvency, as for every group);
-`availableLiquidity() >= position * minLocalBufferBps / 10_000` outside a replenish window;
+`availableLiquidity() >= max(position * minLocalBufferBps / 10_000, minLocalBufferAbsolute)`
+outside a replenish window;
 `remoteValueUpdatedAt` older than a day; `remoteValue` on the adapter diverging from
 `conservativeValue()` on the hub by more than a day's NAV drift; `lossCarryforward` growing
 without a corresponding bridge.
@@ -399,11 +575,13 @@ without a corresponding bridge.
 |---|---|---|
 | Fill never lands; `outboundInFlight` stuck | No relayer filled by `fillDeadline` | Wait for Across's refund bundle; USDG reappears in the adapter; sync `outboundRefunded`. Then re-quote. |
 | `bridgeHome` fill never lands | Same, on the way back | USDC reappears in the hub; sync `inboundRefunded` and refreshed `remoteValue`. |
-| Keeper offline | Nothing is reported | `remoteValue` goes stale; brand yield is under-credited, never over. Redemptions keep paying from the buffer until it is empty. Rotate the key via the timelock if it is gone for good. |
-| Curve depeg / thin pool | `sellShares` reverts `MinOutBelowFloor` or Curve reverts on min-out | Nothing is sold below NAV-less-50 bps. Governance either raises `maxSwapSlippageBps` (hub owner, cap 500) and takes the realised loss, or waits. The native queue (§9) is the eventual answer. |
-| Buffer empty | Redemptions exceeded 10 % between replenishes | `redeem` with `minAssetsOut` reverts `InsufficientPayout`; the three-argument overload pays what is there. Keeper replenishes; redeemers retry. |
-| Guard paused | Guardian saw something | `mint`, `swap`, `claimYield`, `deployIdle`, `bridgeOut` halt; `redeem` and `sync` continue. Only the timelock can unpause. |
-| `RemoteValueAboveCap` on an honest sync | sUSDai NAV rose faster than 50 bps/day; a `sellShares` realised the ~44 bps NAV gap; or syncs were missed for so long the pro-rata term is still short | Sync at the cap (the report may be lower than the truth) and let the next syncs catch up; or governance raises `maxRemoteGrowthBpsPerDay` with a reason. |
+| Keeper offline | Nothing is reported | `remoteValue` goes stale; brand yield is under-credited, never over. Redemptions keep paying from the buffer until it is empty. Rotate the key from the Safe if it is gone for good. Past `MAX_GROWTH_WINDOW` = 7 days the catch-up has to be spread over several reports. |
+| Curve depeg / thin pool | `sellShares` reverts `MinOutBelowFloor` or Curve reverts on min-out | Nothing is sold below NAV less `maxSwapSlippageBps` (15 bps by default). The hub owner either raises it (cap 500) and takes the realised loss, or waits. The native queue (§9) is the eventual answer. |
+| Buffer empty | Redemptions exceeded the buffer floor between replenishes | **Both** `redeem` overloads now revert `InsufficientPayout`; the three-argument form no longer pays out whatever is there. Keeper replenishes; redeemers retry. |
+| Guard paused | Guardian saw something | `mint`, `swap`, `claimYield`, `deployIdle`, `bridgeOut` halt; `redeem` and `sync` continue. The guardian cannot resume; only the Safe can unpause. |
+| `RemoteValueAboveCap` on an honest sync | sUSDai NAV rose faster than the allowance; a `sellShares` realised the ~44 bps NAV gap; or syncs were missed for longer than `MAX_GROWTH_WINDOW` so the pro-rata term is capped short | Sync at the cap (the report may be lower than the truth) and let the next syncs catch up; or the Safe raises `maxRemoteGrowthBpsPerDay`, or sets `maxRemoteGrowthAbsolutePerDay`, with a reason. |
+| `remoteValue` stuck at zero with the hub holding value | A report landed at zero; the bps allowance is proportional to it, so nothing can raise it | `setRemoteValue` (Safe, break-glass), or set `maxRemoteGrowthAbsolutePerDay` so there is a way back. |
+| `bridgeOut` reverts `BridgeAmountAboveCap` with a sane amount | `maxBridgeAmount` is zero, the fail-closed default, or the proxy was upgraded from an implementation predating the slot | The Safe sets `maxBridgeAmount` and `setBridgeBudget`. This is expected on a fresh or freshly upgraded adapter, not a fault. |
 
 ## 9. Deferred
 
@@ -415,8 +593,14 @@ document's full design.
   pending-share and USDai-receivable buckets from §7.
 - **USDai → PYUSD primary leg.** Research §6 found `withdraw` on USDai is not gated; a primary
   exit could beat Curve at size. Not wired.
-- **Market stack for this group.** No `AssetMarketFactory`, `MarketRouter` or `ProtocolFeeHook`
-  points at this pool. Brands registered here are mint/redeem-only.
+- **In-kind and market-maker flows.** Flows A and D from the research document are unbuilt; only
+  flow B, the quoted hub market sale, exists.
+- **The cross-chain leg has never run in production.** `remoteValue` is zero, both in-flight
+  counters are zero, and `maxBridgeAmount` and `bridgeBudgetPerWindow` are the numbers that
+  gate starting it. Until the Safe sets those and the keeper runs, the group is a plain 1:1
+  USDG reserve with a 20 bps exit fee and none of §2 has been exercised against mainnet. This
+  is the single most important thing to know about the current state, and it is deliberately
+  repeated from §1.
 - **Cross-group conversion.** A USDG-group brand token and an sUSDai-group brand token are not
   swappable; each pool's `swap` is internal.
 - **Fee accounting refinements.** The fee is one flat number for every redeemer regardless of
@@ -428,8 +612,8 @@ document's full design.
   obvious next step and changes nothing on chain.
 - **Across integrator key.** The API answers without one today; onboarding should happen before
   volume does.
-- **Hub owner is not the timelock.** It cannot be, across chains. A multisig on Arbitrum is the
-  minimum; cross-chain governance (CCIP, research §2) would let the Robinhood timelock own it.
+- **Hub owner is not the Safe.** It cannot be, across chains. A multisig on Arbitrum is the
+  minimum; cross-chain governance (CCIP, research §2) would let the Robinhood owner own it.
 
 ## 10. Test map
 
@@ -441,6 +625,9 @@ document's full design.
 | `test/SharedReservePool.t.sol` (fee section) | `redemptionFeeBps` on the pool alone: `previewRedeem`, `FeeTooHigh`, fee-as-income into `lossCarryforward` then the index |
 | `test/susdai/SUSDaiGroupRobinhoodFork.t.sol` | Real USDG, real Robinhood SpokePool: a `bridgeOut` that the live pool accepts, refund accounting |
 | `test/susdai/SUSDaiHubArbitrumFork.t.sol` | Real Curve, real sUSDai, real Arbitrum SpokePool: buy/sell round trip, `conservativeValue`, a real `depositV3` |
+| `test/susdai/SUSDaiInvariant.t.sol` | The position identity and the growth cap under fuzzed keeper sequences |
+| `test/susdai/LiveSUSDaiBridgeDryRunFork.t.sol` | The bridge path against the live deployment, without broadcasting |
+| `test/susdai/SUSDaiTestnetDeployment.t.sol`, `test/susdai/SUSDaiTestnetMocks.t.sol` | The Base Sepolia / Arbitrum Sepolia integration topology and its mocks |
 
 ```bash
 forge test --match-path 'test/susdai/*' --no-match-path 'test/*Fork*' -vv

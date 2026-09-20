@@ -1,24 +1,56 @@
 # Security review, 2026-09-10 (historical)
 
+> **STATUS: POINT-IN-TIME RECORD. Read this box before anything below it.**
+>
+> - **Review date: 2026-09-10.** Every finding body in this file describes source as it read on
+>   that day. Most of that source no longer exists.
+> - **Last re-checked against `src/`: 2026-09-20.** The verdict table immediately below is the
+>   re-check. The finding bodies were deliberately NOT rewritten, so they contain numbers and
+>   addresses that were true on 2026-09-10 and are not true now.
+> - **Resolved since this review was written:** SR-02, SR-03, SR-05, SR-06, SR-07 and SR-08 are
+>   all closed, either by a fix or by deletion of the contract. **SR-01 and SR-04 are the only
+>   two still open**, and SR-04 is carried as AM-08 in `docs/audit-history.md`.
+> - **Four things changed in September 2026 that contradict the finding text below.** Every one
+>   of them is stated correctly in `docs/audit-history.md` and in `docs/0x/`; none of them is
+>   corrected inline here, because the finding text is the historical artefact:
+>   1. **The protocol fee moved from `beforeSwap` to `afterSwap`** on 2026-09-19 and is now
+>      taken on the swap's UNSPECIFIED leg, which on an exact-input swap is the OUTPUT token.
+>      SR-03's body says "5% of every swap's input". The input-side skim no longer exists;
+>      `beforeSwap` returns `ZERO_DELTA` and only writes an oracle observation.
+>   2. **`MAX_FEE_PIPS` is 10,000 pips = 1.00%**, not the 50,000 = 5% SR-03's body quotes.
+>   3. **Custody is a Gnosis Safe**, `0x28569c1716EF81f307d666A1EC08bDAE92AC0373`, v1.4.1,
+>      2-of-3. The deployer EOA `0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9` named in SR-03's
+>      body is no longer owner, guardian or treasury of anything. There is still **no upgrade
+>      timelock**: the Safe can upgrade any proxy in a single transaction.
+>   4. **Fee increases are announced an hour ahead.** Both `ProtocolFeeHook` and
+>      `SharedReservePool` carry `FEE_INCREASE_DELAY = 3600`; decreases are immediate and cancel
+>      a pending increase. This is a quote-reliability guarantee, not a governance limit, for
+>      the reason in (3).
+> - **`web-stable/` paths below do not resolve here.** This repository is contracts and tests
+>   only. Where a finding cites a frontend file it is describing the application repository,
+>   which is not part of this handoff; nothing in a review of this repository depends on it.
+>
+> Anything in this file that disagrees with `docs/audit-history.md` is wrong and that file wins.
+
 **Historical internal review of an architecture that has since been replaced twice.** It is
 kept because its findings are part of the audit trail and because it is the only document that
 carries the SR-numbered series: `docs/audit-history.md` consolidates the four earlier passes
 (the AM, A1, A2 and A3 series) and does not carry SR-01 to SR-08. **`docs/audit-history.md`
 holds the current verdicts for everything else, and it is where an auditor should start.**
 
-Every SR finding below was re-checked against current `src/` on 2026-09-19. The table is that
+Every SR finding below was re-checked against current `src/` on 2026-09-20. The table is that
 re-check; the finding text itself is left as written on 2026-09-10 and describes source that in
 most cases no longer exists. Nothing was dropped.
 
-| ID | 2026-09-19 verdict | Why |
+| ID | 2026-09-20 verdict | Why |
 | --- | --- | --- |
 | SR-01 | **Obsolete in source, unresolved on chain** | `StablecoinLauncher` and `BrandedVault` are deleted from `src/`. The deployed launcher is still live on 4663 and no manifest under `deployments/` records it. See the note under SR-01. |
 | SR-02 | **Obsolete** | `BuybackEngine` is deleted; `grep -rn BuybackEngine src/` is empty. There is no buyback to grief. |
-| SR-03 | **Fixed** | `grep -rn defaultFeePips src/` is empty. `ProtocolFeeHook.feePipsFor` returns the pool's own stored rate, and zero for an unregistered pool (`src/markets/ProtocolFeeHook.sol:342-343`). |
-| SR-04 | **Open, and carried elsewhere** | SR-04 is AM-08 restated. `docs/audit-history.md` carries AM-08 as open with the current citation; read it there. Re-checked here on 2026-09-19: `grep -rn accrueInterest src/` is still empty and `MorphoBlueYieldSource.balanceOf` still values shares off `morphoBlue.market(marketId)`'s stored totals (`src/yield/MorphoBlueYieldSource.sol:208-213`). |
-| SR-05 | **Fixed** | `SharedReservePool.redeem` has the four-argument overload (`src/pool/SharedReservePool.sol:444`) and `_redeem` reverts `InsufficientPayout` (`:472`). |
+| SR-03 | **Fixed, and the ceiling has since been lowered** | `grep -rn defaultFeePips src/` is empty. `ProtocolFeeHook.feePipsFor` returns the pool's own stored rate, and zero for an unregistered pool (`src/markets/ProtocolFeeHook.sol:535-536`). Two things the finding body below gets wrong about today: `MAX_FEE_PIPS` is 10,000 pips = 1.00% (`:140`), not 50,000; and an increase now has to be announced `FEE_INCREASE_DELAY` = 3,600 seconds ahead (`:153`, `:407`, `:441`) while a decrease is immediate. `docs/audit-history.md` carries this under "Resolved by the September 2026 changes". |
+| SR-04 | **Open, and carried elsewhere** | SR-04 is AM-08 restated. `docs/audit-history.md` carries AM-08 as open with the current citation; read it there. Re-checked here on 2026-09-20: `grep -rn accrueInterest src/` is still empty and `MorphoBlueYieldSource.balanceOf` still values shares off `morphoBlue.market(marketId)`'s stored totals (`src/yield/MorphoBlueYieldSource.sol:208-213`). |
+| SR-05 | **Fixed, and the three-argument form is now strict too** | `SharedReservePool.redeem` has the four-argument overload (`src/pool/SharedReservePool.sol:527`) and `_redeem` reverts `InsufficientPayout` (`:555`). The three-argument overload (`:503`) no longer absorbs a silent haircut either: it derives its own floor as par less the live `redemptionFeeBps` (`:510`), which is exactly what `previewRedeem` (`:863`) quotes, and reverts rather than under-paying. Integrators should still prefer the four-argument overload, because it lets the caller choose the bound instead of inheriting the fee that happened to be live at settlement. |
 | SR-06 | **Obsolete** | `grep -rn MAX_BUYBACK_DEVIATION_BPS src/` is empty. The buyback and its price band went with the engine. |
-| SR-07 | **Fixed** | `MarketRouter.seedLiquidity` mints the LP NFT to `msg.sender` (`src/markets/MarketRouter.sol:498`, `:534-536`), and the remainder goes home in the token it arrived as rather than being redeemed (`:544-546`). That also closes the second half of the finding, where the UI promised a brandUSD refund the contract did not deliver. |
+| SR-07 | **Fixed** | `MarketRouter.seedLiquidity` (`src/markets/MarketRouter.sol:507`) mints the LP NFT to `msg.sender` through `_mintPosition` (`:540`, `:670`), and the remainder goes home in the token it arrived as rather than being redeemed (`:551`, `_refund` at `:777-782`). That also closes the second half of the finding, where the UI promised a brandUSD refund the contract did not deliver. |
 | SR-08 | **Obsolete** | `BrandedVaultFactory` is deleted. |
 
 The "Re-checked and unchanged" section at the end of this file is historical in the same way.
@@ -100,6 +132,17 @@ The Status column is the 2026-09-10 status. For the current one, read the table 
   still absorbs a haircut, which is what `MarketRouter._refund` wants. Regression:
   `test_redeemHonoursAMinimumPayout`, which shows the bare overload burning brand for a zero
   payout and returning normally.
+
+  **2026-09-20: both halves of that last sentence have since changed.** The three-argument
+  `redeem` is now strict — it derives its own floor from par less the live `redemptionFeeBps`,
+  the same number `previewRedeem` quotes, and reverts rather than under-paying
+  (`src/pool/SharedReservePool.sol:508-510`). And `MarketRouter._refund` no longer redeems at
+  all; it returns each side in the token it is holding (`src/markets/MarketRouter.sol:777-782`,
+  with the reasoning at `:768-776`), which is A3-L-3 in `docs/audit-history.md`. So the
+  three-argument overload's silence was removed rather than preserved, and the caller that
+  wanted the silence no longer exists. Integrators should still use the four-argument overload,
+  because it bounds the payout at a number the caller chose rather than at whatever fee is live
+  when the transaction lands.
 - **SR-06.** `MAX_BUYBACK_DEVIATION_BPS` 2,000 → 500. **No minimum-output check was added, and
   that is deliberate.** An exact-input swap under a `sqrtPriceLimitX96` placed a band from the
   TWAP can only execute between the pool's starting price and that limit, so output per unit of
@@ -332,8 +375,8 @@ swap, so it does not conflict with partial fills), and lower `MAX_BUYBACK_DEVIAT
 
 ### SR-07 — Low: router liquidity, and the fees it earns, cannot be recovered
 
-**Fixed as at 2026-09-19.** Seeders hold their own position NFTs
-(`src/markets/MarketRouter.sol:498`, `:534-536`).
+**Fixed as at 2026-09-20.** Seeders hold their own position NFTs
+(`src/markets/MarketRouter.sol:507`, minted through `_mintPosition` at `:540` and `:670`).
 
 `MarketRouter.seedLiquidity` adds to one full-range position keyed to the router itself with
 a shared salt, and there is no `modifyLiquidity` with a negative delta anywhere in `src/` —

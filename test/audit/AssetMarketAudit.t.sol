@@ -65,7 +65,7 @@ contract A18 is IERC20Metadata {
 /// @notice Regression tests for the findings of the 2026-09-09 AssetMarkets audit. Each one
 ///         began as a passing exploit against the pre-fix contracts; the assertions here are
 ///         the inverted form, so a regression re-opens the hole and fails the suite.
-///         See ASSET_MARKETS_AUDIT.md.
+///         See `docs/audit-history.md`, which carries these findings as the A1 series.
 ///
 ///         **The squat is still cheap to mount and no longer buys anything.** In v3 a squatter
 ///         had to pay for a `CREATE2` pool deployment before they could price a market they had

@@ -1,16 +1,20 @@
 # Contracts CI. Deliberately small: build, format, and the offline test suite.
 #
 # The fork suite is not run here. It needs a live Robinhood Chain RPC, which rate-limits under
-# CI concurrency and would make this workflow flake for reasons that have nothing to do with the
-# change under test. Run it locally before a release:
+# CI concurrency and returns stale-trie errors under load, so it would make this workflow flake
+# for reasons that have nothing to do with the change under test. Run it locally before a
+# release:
 #   forge test -v --threads 1 --fork-url https://rpc.mainnet.chain.robinhood.com
+#
+# Both filters are needed. `--no-match-path` misses suites whose file is not named *Fork*, such
+# as test/LiveGen5Mainnet.t.sol, whose contract is LiveGen5MainnetForkTest; `--no-match-contract`
+# catches those.
 name: Tests
 
 on:
   push:
     branches: ["main"]
   pull_request:
-
 
 jobs:
   test:
@@ -32,4 +36,4 @@ jobs:
 
       # via_ir makes a cold build expensive, so the offline suite reuses the artifacts above.
       - name: Test (offline)
-        run: forge test --no-match-path 'test/*Fork*' -vv
+        run: forge test --no-match-path 'test/*Fork*' --no-match-contract Fork -vv

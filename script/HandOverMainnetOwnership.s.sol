@@ -54,7 +54,7 @@ interface IOwnable2Step {
 ///         `AssetMarketFactory`, the `MarketRouter` and the `ProtocolFeeHook` — behind the
 ///         48-hour `TimelockController` that already owns everything else.
 ///
-///         This is CRITICAL-1 from `ASSET_MARKETS_AUDIT_UPGRADEABLE.md`. The manifest argued
+///         This is A3-CRITICAL-1, carried in `docs/audit-history.md`. The manifest argued
 ///         it was tolerable because no market existed and the reserve held nothing. That is no
 ///         longer true: as of 2026-09-16 the factory reports 11 markets and the reserve holds
 ///         ~$362 of real USDG, ~$356 of it belonging to addresses other than the deployer. Any

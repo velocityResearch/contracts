@@ -22,7 +22,7 @@ import {ProtocolStack} from "../src/upgrade/ProtocolStack.sol";
 ///         that applies a different number does not merely configure the launchpad
 ///         differently — it produces launches whose terms cannot be brought back into line
 ///         later. Two scripts stand this layer up; one copy of the numbers keeps them from
-///         drifting apart. See LAUNCHPAD_PLAN.md section 10.
+///         drifting apart. See `docs/LAUNCHPAD_PLAN.md` section 10.
 ///
 ///         `LaunchFactory.initialize` already writes the four policy defaults below. They are
 ///         written again here on purpose: the deployment, not the implementation's
@@ -142,7 +142,7 @@ library LaunchpadDefaults {
 
 /// @title DeployLaunchpad
 /// @notice Stands the launchpad up on top of a market stack that is already deployed, and
-///         configures it to the terms in LAUNCHPAD_PLAN.md section 10.
+///         configures it to the terms in `docs/LAUNCHPAD_PLAN.md` section 10.
 ///
 ///         **Everything structural is read off the market factory, not off this file.** The
 ///         launchpad has to agree with the market stack about three addresses — the v4

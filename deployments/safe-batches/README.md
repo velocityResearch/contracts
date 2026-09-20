@@ -7,6 +7,14 @@ All sixteen handles are owned by the Safe and no nomination is outstanding. This
 as the record of how it was done and as the source of the batches, which are reusable if a
 future handover repeats the pattern.
 
+## What is in this directory
+
+| File | State |
+|---|---|
+| `01-accept-strategy-group-registry.json` | **Executed.** One transaction |
+| `02-accept-remaining-eleven.json` | **Executed.** The other eleven two-step handles |
+| `03-repoint-fee-recipients.json` | **Prepared, not executed.** See the fee-recipient section below |
+
 ## What was done, in this order
 
 **1. `01-accept-strategy-group-registry.json`** — one transaction. `StrategyGroupRegistry` is
@@ -23,12 +31,13 @@ the signers can sign.
 Verify the end state at any time:
 
 ```
-forge test --skip 'src/vaults/*' --skip 'test/vaults/*' --match-contract OwnershipMigrationMainnetForkTest --threads 1 --fork-url https://rpc.mainnet.chain.robinhood.com
+forge test --match-contract OwnershipMigrationMainnetForkTest --threads 1 --fork-url https://rpc.mainnet.chain.robinhood.com
 ```
 
 That suite asserts all sixteen are the Safe's, that no nomination is left, that the retired
 key reverts on every owner-only call including all four beacons, and that the Safe can still
-govern each class of handle.
+govern each class of handle. It also pins the Safe's own shape: threshold 2, three distinct
+signers, none of them the retired key, and a nonce above zero.
 
 ## Known and accepted: the gen-4 MarketRouter
 
@@ -53,16 +62,31 @@ It has been rotated off the retired deployer EOA and onto a fresh hot key,
 prints the batch rather than broadcasting it. There is no `broadcast/` artifact for that
 reason; the chain is the record, and `deployments/mainnet-state.json` reads it back.
 
-**The retired key now holds nothing.** Halting was the last power it had.
-`test_live_theRetiredDeployerCannotEvenHalt` in `test/LiveGen5Mainnet.t.sol` asserts exactly
-that, so the claim above fails loudly rather than rotting.
+**The retired key now holds no authority over anything live.** Halting was the last power it
+had. `test_live_theRetiredDeployerCannotEvenHalt` in `test/LiveGen5Mainnet.t.sol` asserts
+exactly that, so the claim above fails loudly rather than rotting. It is still named as a fee
+*recipient* and still owns the dead gen-4 router, both covered above and below; neither is a
+power over the live protocol.
 
-## Still on the old key: fee recipients
+## Prepared but not executed: fee recipients
 
-Fee *recipients* are not ownership and do not move with it:
+Fee *recipients* are not ownership and did not move with it. A recipient cannot upgrade, halt
+or reconfigure anything; repointing one is a separate `onlyOwner` call.
 
-- `ProtocolFeeHook.feeRecipientOf` per pool, and `LaunchFactory.protocolFeeRecipient` /
-  `lpFundRecipient`, all still point at the deployer.
-- **Collect before repointing.** `ProtocolFeeHook.collect` pays whoever is named when it runs,
-  not when the fee accrued, and `LaunchFeeEscrow.claimToken` is `msg.sender`-scoped, so
-  repointing does not move the roughly 225 AIUSD already accrued there.
+`deployments/mainnet-state.json` records `ProtocolFeeHook.feeRecipientOf` on every registered
+pool and `LaunchFactory.protocolFeeRecipient` as still the retired deployer
+`0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9`.
+
+`03-repoint-fee-recipients.json` is the batch that changes that, and it has **not** been
+executed. Seven transactions:
+
+- `setFeeRecipient` on the hook for four live pools — 13 NVDA, 14 SPCX, 15 AI, 16 SDOGE. The
+  remaining registered pools keep the existing hot wallet on purpose.
+- Both `LaunchFactory` recipient setters, `setProtocolFeeRecipient` and `setLpFundRecipient`.
+- `AssetMarketFactory.setProtocolParams`, naming the Safe for FUTURE markets with `protocolBps`
+  left at 0 so LPs keep 100% of float yield.
+
+**Collect before repointing.** `ProtocolFeeHook.collect` pays whoever is named when it runs,
+not when the fee accrued, and `LaunchFeeEscrow.claimToken` is `msg.sender`-scoped, so
+repointing does not move what has already accrued to the old address. Sweep first with
+`script/SweepFeesToSafeMainnet.s.sol`, then send this batch.

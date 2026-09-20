@@ -1,32 +1,43 @@
 # SharedReservePool — one reserve, many brands, permanent 1:1
 
-> **Status: built and tested, not deployed.** 26 tests pass (17 unit, 1 integration, 8 against a
-> mainnet fork with real USDG and real Morpho Blue). Only a dry run exists on chain 4663
-> (`broadcast/DeploySharedReservePool.s.sol/4663/dry-run/`). Nothing in the frontend surfaces it.
+> **Status: live on Robinhood Chain mainnet (chainId 4663), in two deployments.**
+>
+> | Reserve | Address | `redemptionFeeBps` | Role |
+> |---|---|---|---|
+> | sUSDai | `0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2` | **20** | Backs all six live asset markets (ids 13-18). Yield source `SUSDaiYieldSource` |
+> | USDG/Morpho | `0xdB485351d953F10FAA7c820B7648f6E91d9Cd9F3` | **0** | The market factory's default. No live market draws on it. Yield source `MorphoBlueYieldSource` |
+>
+> Both are UUPS proxies owned by the 2-of-3 Safe `0x28569c1716EF81f307d666A1EC08bDAE92AC0373`,
+> with **no timelock** — see [UPGRADING.md](UPGRADING.md). Balances, caps, fees and the
+> implementation behind each proxy are read from chain into
+> `deployments/mainnet-state.json`. Take them from there, never from this page.
 
-`SharedReservePool` is the second issuance model in this repo. It is **independent of
-`BrandedVault`** — it touches no vault, no beacon, no factory, no launcher, and no sell wall. A
-brand picks one model or the other.
+`SharedReservePool` is the issuance layer the whole protocol sits on. A market's unit — its
+"brand dollar" — is a `PooledBrandToken` registered here, and `MarketRouter`, `LaunchRouter`
+and `BrandPsm` mint and redeem against this contract rather than holding inventory of their
+own. The v4 pools are the thin leg; the reserve is the deep one.
 
-| | `BrandedVault` | `SharedReservePool` |
-|---|---|---|
-| Brand token | ERC-4626 share | Flat `PooledBrandToken` |
-| Redemption value | Share price, appreciates | Always exactly 1.000000 USDG |
-| Where yield goes | Into the share price, minus a management fee to the brand | 100% to the brand's treasury, as a claim |
-| Reserve | One vault, one brand | One reserve, many brands |
-| Brand ↔ brand swap | Only through a DEX pool, with slippage | `swap()`, exactly 1:1, no slippage, no pool |
-| Deployed | Yes, mainnet | No |
+A pooled brand token is a flat 1:1 claim on a shared pot, not a share in a vault:
+
+| | |
+|---|---|
+| Brand token | Flat `PooledBrandToken`, decimals mirrored from the reserve asset (6 for USDG) |
+| Redemption value | Always exactly 1.000000 of the asset, less `redemptionFeeBps` |
+| Where yield goes | 100% to the brand's treasury, as a ledger claim — never into a price |
+| Reserve | One pot, many brands |
+| Brand to brand | `swap()`, exactly 1:1, no slippage, no pool, no underlying movement |
 
 ---
 
 ## 1. Why pooling is what makes 1:1 swaps safe
 
 The obvious way to let two branded stablecoins swap for each other is to burn X of one and mint X
-of the other. Across two independent `BrandedVault`s that is **wrong**, and quietly so: each vault
-carries its own share price, and those prices drift apart as the two vaults earn different yield.
-Swapping share-for-share therefore hands value from whichever vault's price has drifted higher to
-whoever noticed. There is no fee or slippage parameter that fixes it — the mispricing *is* the
-trade.
+of the other. Across two independent ERC-4626-style vaults — one vault per brand, each brand a
+share — that is **wrong**, and quietly so: each vault carries its own share price, and those
+prices drift apart as the two vaults earn different yield. Swapping share-for-share therefore
+hands value from whichever vault's price has drifted higher to whoever noticed. There is no fee
+or slippage parameter that fixes it — the mispricing *is* the trade. That per-brand-vault design
+was the protocol's first issuance model and is why this one replaced it.
 
 Pooling removes the drift instead of pricing it. Every `PooledBrandToken` in a pool is a flat,
 non-appreciating claim on the **same** pot of backing, so its par value never moves relative to any
@@ -56,9 +67,9 @@ brand.accruedYield += brand.outstanding * (cumulativeYieldPerToken - brand.index
 brand.indexCheckpoint = cumulativeYieldPerToken
 ```
 
-This is the same shape as `BrandedVault._harvestFees`, which distributes yield by share-price
-delta. The difference is that the "price" here is a single pool-wide rate, and the thing it
-multiplies is one brand's outstanding supply rather than one vault's entire supply.
+The "price" here is a single pool-wide rate rather than a per-brand share price, and the thing
+it multiplies is one brand's outstanding supply. That is the whole reason the model can offer
+a 1:1 swap between two brands: neither side has a price of its own to drift.
 
 Three properties fall out of it, and each has a test:
 
@@ -106,11 +117,34 @@ retained by the reserve on every redemption: the redeemer burns `amount` and is 
 `amount - amount * redemptionFeeBps / 10_000`. The fee is not sent anywhere. `_redeem` re-syncs the
 baseline and then lowers `lastAccrualAssets` by the fee, so the next `_accrueGlobal` sees it as
 growth — which repays `lossCarryforward` first and only then reaches `cumulativeYieldPerToken`,
-the same path yield takes. A native-USDG reserve leaves it at zero. A reserve whose backing sits
-behind a bridge and a swap ([docs/SUSDAI_COLLATERAL.md](docs/SUSDAI_COLLATERAL.md)) sets it to
-the measured round-trip cost, so the costs the keeper books as losses are netted by the
-redeemers who cause them rather than by every holder.
+the same path yield takes. A native-USDG reserve leaves it at zero, which is why the
+USDG/Morpho reserve charges nothing. A reserve whose backing sits behind a bridge and a swap
+([docs/SUSDAI_COLLATERAL.md](docs/SUSDAI_COLLATERAL.md)) sets it to the measured round-trip
+cost, which is why the sUSDai reserve charges 20 bps: the costs the keeper books as losses are
+netted by the redeemers who cause them rather than by every holder.
 (`test_redeem_feeRepaysBookedCostsBeforeItBecomesYield`)
+
+### An increase to the fee is announced an hour ahead
+
+`setRedemptionFee` does not apply an increase. It writes `pendingRedemptionFeeBps` and sets
+`redemptionFeeEffectiveAt = block.timestamp + FEE_INCREASE_DELAY` (1 hour), and the live fee
+does not move until someone calls the permissionless `commitRedemptionFee()` at or after that
+time. `FeeIncreaseNotReady` if it lands early. The ceiling is re-checked at commit as well as
+at announcement, so a value authorised under an older, higher `MAX_REDEMPTION_FEE_BPS` cannot
+land under a lower one.
+
+A **decrease applies immediately** and clears any pending increase, so the owner can always
+make the fee smaller at once and can never surprise anyone by making it larger.
+`cancelPendingRedemptionFee()` drops an announced increase without changing the live fee; both
+it and `commitRedemptionFee` revert `NoPendingFeeIncrease` when nothing is scheduled, rather
+than returning quietly, so an owner cannot believe they cancelled something they never
+scheduled.
+
+**What this is worth, precisely.** `previewRedeem` and both `redeem` overloads read only the
+live fee, so a quote cannot be repriced under a filling integrator inside the hour, and
+`redemptionFeeEffectiveAt == 0` is the single read that proves nothing is pending. That is a
+reliability guarantee. It is **not** a security guarantee: the Safe can upgrade the
+implementation in one transaction and remove the delay. Say it that way to integrators.
 
 ## 3. Contracts
 
@@ -127,17 +161,24 @@ tokens and 1 unit of a brand token always lines up with 1 unit of USDG.
 
 | Function | Who | Notes |
 |---|---|---|
-| `registerBrand` | anyone | A brand with no minted supply earns nothing and affects nobody. Same rationale as `BrandedVaultFactory.createVault` |
+| `registerBrand` | anyone | A brand with no minted supply earns nothing and affects nobody, so gating it would only add a bottleneck |
 | `mint` / `redeem` / `swap` | anyone | Acts on the caller's own balance only |
 | `deployIdle` | anyone | Sweeps idle reserve into the yield source. Normally a no-op — `mint` supplies inline |
 | `claimYield` | that brand's treasury only | `OnlyBrandTreasury` |
-| `setYieldSource` | pool owner (the timelock) | Recalls everything to idle first; does not auto-redeploy |
-| `setRedemptionFee` | pool owner (the timelock) | `FeeTooHigh` above 100 bps; applies to every redemption from the next block |
+| `setYieldSource` | pool owner (the Safe) | Recalls everything to idle first; does not auto-redeploy. Reverts `MigrationWouldStrand` beyond `MAX_MIGRATION_DUST` unless the two-argument overload accepts the write-off |
+| `setRedemptionFee` | pool owner (the Safe) | `FeeTooHigh` above 100 bps. An increase is announced, not applied — see above |
+| `commitRedemptionFee` | anyone | Applies an announced increase once its hour is served |
+| `cancelPendingRedemptionFee` | pool owner (the Safe) | Drops an announced increase |
+| `setLiabilityCap` | pool owner (the Safe) | Ceiling on aggregate brand principal; zero means uncapped |
 | `PoolBrandTreasury.claim` / `distribute` / `setAdmin` | treasury admin | Explicit receiver, so it must be gated |
 
-`PoolBrandTreasury.claim` is admin-only for the same reason `VaultTreasury.redeem` is: a payout
-function with an arbitrary `receiver` is redirectable by whoever calls it. Owning the claim is not
-enough — the destination has to be gated too.
+`mint`, `swap`, `claimYield` and `deployIdle` are `whenNotPaused` against `ProtocolGuard`.
+**`redeem` is not, and must never become so.** A claim that can be suspended is not a claim;
+holders exit 1:1 while everything else is halted, especially then.
+
+`PoolBrandTreasury.claim` is admin-only for one reason: a payout function with an arbitrary
+`receiver` is redirectable by whoever calls it. Owning the claim is not enough — the
+destination has to be gated too.
 
 ## 4. Flows
 
@@ -151,23 +192,44 @@ approve(USDG, pool, amount) → pool.mint(token, amount, receiver)
 
 Pulls `amount` USDG from the caller, mints `amount` of `token` to `receiver`. Returns `amount`.
 
+Two gates apply. `mint` is `whenNotPaused`, so a halt closes entry while leaving exit open.
+And if `liabilityCap` is nonzero, a mint that would push `totalPooledSupply` past it reverts
+`LiabilityCapExceeded(currentSupply, mintAmount, cap)`. The sUSDai reserve is capped at
+10,000,000 USDG; the USDG/Morpho reserve is uncapped. Read the live figures from
+`deployments/mainnet-state.json`, and `MarketLens.maxMint(pool)` for the headroom an
+integrator actually has.
+
 ### Redeem (1:1 out)
 
 **No approval needed.** The pool burns the caller's tokens directly (`PooledBrandToken.burn` is
 pool-only and takes no allowance path), so this is one transaction, not two.
 
 ```
-pool.redeem(token, amount, receiver)                 # accepts any payout
+pool.redeem(token, amount, receiver)                 # demands previewRedeem(amount); reverts otherwise
 pool.redeem(token, amount, receiver, minAssetsOut)   # reverts InsufficientPayout below minAssetsOut
 ```
 
 Burns `amount` from the caller, recalls from the yield source if idle is short, pays `receiver`
-`amount - fee` where `fee = amount * redemptionFeeBps / 10_000` (zero unless the owner set one).
-Returns the amount actually paid — normally `previewRedeem(amount)`, occasionally a wei less (see
-[Rounding dust](#rounding-dust)), and possibly much less if the yield source cannot deliver.
-**Pass `previewRedeem(amount)` as `minAssetsOut` to insist on par less the fee**; the
-three-argument overload is for callers who have already decided a short payout beats not
-redeeming. Either way, **a caller must read the return value rather than assuming `amount`.**
+`amount - fee` where `fee = amount * redemptionFeeBps / 10_000`.
+
+**The three-argument overload is strict.** It derives its own floor from
+`previewRedeem(amount)` — par less the live fee — and reverts
+`InsufficientPayout(payout, minimum)` rather than paying less. It used to pass a floor of zero:
+it burned the caller's tokens and then paid whatever the reserve could raise, booking the
+difference against `lossCarryforward`, with no revert and no event distinguishing that from a
+good redemption. Because the burn happened first there was nothing left to retry with. An
+aggregator calling selector `0x5c833bfd` now gets a revert instead of a silent haircut.
+
+**Integrators should call the four-argument overload** and choose their own bound. A holder who
+would rather exit at a loss than not exit at all passes a lower `minAssetsOut`; that is a
+decision only the caller can make, and it is the only way to reach a haircut now. Pass
+`previewRedeem(amount)` to demand exactly par less the fee.
+
+The return value is what was actually paid. It is normally `previewRedeem(amount)` and can be a
+wei less (see [Rounding dust](#rounding-dust)) — which is precisely why the strict default
+still reverts rather than silently rounding: `_cappedByIdle` truncates, so the dust tolerance
+now lives in the caller's chosen bound instead of being an unbounded promise attached to the
+simplest entrypoint. **Read the return value rather than assuming `amount`.**
 
 ### Swap (brand → brand)
 
@@ -200,10 +262,10 @@ pool.deployIdle()
 
 Pushes the whole idle balance into the yield source.
 
-**`mint` already does this inline**, so on a healthy pool this is a no-op and there is no keeper
-obligation the way `BrandedVault.deployIdle` has one. It remains for reserves that arrive by
-another route: a direct transfer to the pool, rounding dust, or the entire position sitting idle
-after `setYieldSource` recalls it and deliberately does not re-commit it.
+**`mint` already does this inline**, so on a healthy pool this is a no-op and no keeper is
+obliged to call it. It remains for reserves that arrive by another route: a direct transfer to
+the pool, rounding dust, or the entire position sitting idle after `setYieldSource` recalls it
+and deliberately does not re-commit it.
 
 Two consequences of supplying inline are worth stating plainly:
 
@@ -218,28 +280,37 @@ Two consequences of supplying inline are worth stating plainly:
 
 ## 5. Deploying
 
+**Both live reserves are already deployed.** This section is for standing up a new one, and
+for reading what the live ones were built from. Nothing here re-deploys anything: see
+[UPGRADING.md](UPGRADING.md) for changing a live reserve, which is a Safe transaction.
+
 ```bash
-forge script script/DeploySharedReservePool.s.sol --rpc-url https://rpc.mainnet.chain.robinhood.com --broadcast --slow
+PRIVATE_KEY=0x... TIMELOCK_MIN_DELAY=0 forge script script/DeploySharedReservePool.s.sol --rpc-url robinhood --broadcast --slow
 ```
 
-Deploys three things:
+Deploys, in one run:
 
-1. **A dedicated `MorphoBlueYieldSource`** targeting the top USDG/USDe market. It must not be the
-   instance `DeployMainnet.s.sol`'s flagship vault uses — one adapter per consumer is the rule.
-2. **A `TimelockController`** that owns the pool, with the deployer as sole proposer/executor and
-   `admin = address(0)`.
-3. **The `SharedReservePool`**, owned by that timelock.
+1. **A dedicated `MorphoBlueYieldSource`** targeting the top USDG/USDe market, always fresh.
+   The script never accepts an existing adapter address: one adapter per consumer is the rule,
+   and the adapters already on chain predate the per-consumer share accounting.
+2. **A `ProtocolGuard`** — the pause registry every contract in the stack reads.
+3. **The four beacons and the `SharedReservePool` itself**, behind an ERC1967 proxy.
+4. **A `TimelockController`, only if `TIMELOCK_MIN_DELAY` is nonzero.** Zero takes a documented
+   branch that deploys no timelock at all and leaves the deploying key owning the stack.
 
 It deliberately registers **no brand**: `registerBrand` is permissionless and brand-specific
-(name, symbol, admin), so the script stands up shared infrastructure and prints the follow-up
-commands rather than guessing at a brand to launch.
+(name, symbol, admin), and a market's unit is created by `AssetMarketFactory.createMarket`
+from the owner's asset approval rather than attached from a pre-existing brand. The script
+stands up shared infrastructure and prints the follow-up commands.
 
-> **⚠ `TIMELOCK_MIN_DELAY` is 0.** At zero the timelock is not a timelock — schedule and execute
-> land in the same block, and a leaked deployer key can point the pool's entire reserve at a
-> malicious yield source in one transaction. It is set to zero because `updateDelay` is gated by
-> the *current* delay, so raising it later is instant while lowering it costs the current delay.
-> **Raise it before real deposits arrive.** Same posture, same reasoning as
-> [UPGRADING.md](UPGRADING.md).
+> **The live reserves took the zero branch, so neither has a timelock.** Ownership was later
+> migrated to the 2-of-3 Safe `0x28569c1716EF81f307d666A1EC08bDAE92AC0373`, which is where it
+> sits now. That removes the single-key risk and does not add a delay: the Safe can point a
+> reserve's entire backing at a new yield source in one transaction. Stated plainly rather
+> than implied. `UPGRADING.md` has the full governance picture.
+>
+> `script/anvil-fork.sh` plus `script/rehearse-mainnet.sh` exercise this whole sequence against
+> a fork of 4663 before anything is broadcast.
 
 ### Operator commands
 
@@ -300,17 +371,23 @@ cast call <pool> 'pendingYield(address)(uint256)' <token> --rpc-url https://rpc.
 ```
 registerBrand(name, symbol, admin) -> (token, treasury)
 mint(token, amount, receiver)      -> minted        # needs asset approval
-redeem(token, amount, receiver)    -> paidOut       # no approval; pays amount - fee; may be less
+redeem(token, amount, receiver)    -> paidOut       # no approval; STRICT: demands previewRedeem(amount)
 redeem(token, amount, receiver, minAssetsOut) -> paidOut # reverts InsufficientPayout below minAssetsOut
 swap(tokenIn, tokenOut, amount, receiver) -> amount # no approval; always 1:1
 claimYield(token, receiver)        -> amount        # brand treasury only
 deployIdle()
-setYieldSource(newYieldSource)                      # owner (timelock) only
-setRedemptionFee(feeBps)                            # owner (timelock) only; <= MAX_REDEMPTION_FEE_BPS (100)
+setYieldSource(newYieldSource)                      # owner only; strict, reverts MigrationWouldStrand
+setYieldSource(newYieldSource, acceptStranding)     # owner only; writes the shortfall off deliberately
+setRedemptionFee(feeBps)                            # owner only; <= MAX_REDEMPTION_FEE_BPS (100). An INCREASE only schedules
+commitRedemptionFee()                               # anyone, once FEE_INCREASE_DELAY has passed
+cancelPendingRedemptionFee()                        # owner only
+setLiabilityCap(newCap)                             # owner only; zero means uncapped
 
 totalAssets() / totalPooledSupply() / cumulativeYieldPerToken() / lastAccrualAssets() / lossCarryforward()
 previewRedeem(amount) -> amount - amount * redemptionFeeBps / 10_000   # what to pass as minAssetsOut
-redemptionFeeBps() / MAX_REDEMPTION_FEE_BPS()
+redemptionFeeBps() / MAX_REDEMPTION_FEE_BPS() / FEE_INCREASE_DELAY() / MAX_MIGRATION_DUST()
+pendingRedemptionFeeBps() / redemptionFeeEffectiveAt()   # effectiveAt == 0 means nothing is pending
+liabilityCap()
 pendingYield(token) / outstandingOf(token) / isRegistered(token)
 brands(token) -> (registered, treasury, outstanding, indexCheckpoint, accruedYield)
 allBrandTokens(i) / allBrandTokensLength()
@@ -318,11 +395,18 @@ asset() / assetDecimals() / yieldSource() / owner()
 ```
 
 Errors: `ZeroAddress`, `ZeroAmount`, `UnknownBrand`, `SameToken`, `OnlyBrandTreasury`,
-`InsufficientPayout(payout, minimum)`, `FeeTooHigh(feeBps, maximum)`.
+`InsufficientPayout(payout, minimum)`, `FeeTooHigh(feeBps, maximum)`,
+`LiabilityCapExceeded(currentSupply, mintAmount, cap)`, `NoPendingFeeIncrease`,
+`FeeIncreaseNotReady(effectiveAt, timestamp)`, `MigrationWouldStrand(deployed, recalled)`,
+`OwnershipCannotBeRenounced`.
 
-Events: `BrandRegistered`, `Minted`, `Redeemed`, `Swapped`, `YieldClaimed`, `Deployed`,
-`Recalled`, `YieldSourceUpdated`, `RedemptionFeeUpdated(oldFeeBps, newFeeBps)`,
-`RedemptionFeeRetained(token, fee)` (alongside `Redeemed`, whose amount is the payout).
+Events: `BrandRegistered`, `BrandMetadataSet`, `Minted`, `Redeemed`, `Swapped`, `YieldClaimed`,
+`Deployed`, `Recalled`, `YieldSourceUpdated`, `MigrationStranded`, `LiabilityCapUpdated`,
+`RedemptionFeeRetained(token, fee)` (alongside `Redeemed`, whose amount is the payout), and the
+four fee-governance events: `RedemptionFeeUpdated(oldFeeBps, newFeeBps)` for a live change,
+`RedemptionFeeIncreaseScheduled`, `RedemptionFeeIncreaseCommitted`,
+`RedemptionFeeIncreaseCancelled`. An indexer that tracks only `RedemptionFeeUpdated` still sees
+exactly the value every payout uses, because scheduling never emits it.
 
 ### PoolBrandTreasury
 
@@ -338,22 +422,24 @@ pendingYield() / totalYieldClaimed() / pool() / brandToken() / admin()
 Standard ERC-20, plus `mint(to, amount)` and `burn(from, amount)` restricted to `pool()`.
 `decimals()` mirrors the pool's asset.
 
-## 7. Notes for whoever builds the UI
-
-Nothing in `web/` reads this stack today. When it does:
+## 7. Notes for integrators and anyone building a UI
 
 - **Mint is the only flow that needs an approval.** Redeem and swap burn from the caller directly.
   Do not render an approve step for them.
 - **`swap` has no slippage surface.** No min-out, no deadline, no price impact, no route. A swap UI
   here is an amount box and two token pickers — anything more is inventing risk that does not
   exist.
-- **`redeem` can return less than requested** by a wei or two. Show the returned amount, not the
-  requested one, and do not treat the difference as an error.
+- **`redeem` can return less than requested** by a wei or two on the four-argument overload.
+  Show the returned amount, not the requested one, and do not treat the difference as an
+  error. The three-argument overload reverts instead of short-paying, so a caller that wants
+  the haircut has to ask for it explicitly.
+- **Check `redemptionFeeEffectiveAt()` before caching a quote.** Zero means no fee increase is
+  pending and the number you just read is good for at least an hour.
 - **Pooled brand tokens are not vault shares.** They never appreciate, so a share-price or APY
   column is meaningless on them. The yield figure that belongs to a pooled brand is
   `pendingYield`, and it belongs to the brand operator's dashboard, not to a holder's.
 - **A pooled brand's holders see no yield at all.** That is the trade the model makes: holders get
   a permanent peg and free swaps, the brand gets 100% of the yield. Any UI that implies otherwise
   is lying.
-- **Discovery is `allBrandTokensLength()` then `allBrandTokens(i)`** — the same shape as
-  `BrandedVaultFactory.allVaults`, so it batches through multicall3 the same way.
+- **Discovery is `allBrandTokensLength()` then `allBrandTokens(i)`**, so it batches through
+  multicall3.

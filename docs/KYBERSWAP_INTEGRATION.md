@@ -1,9 +1,17 @@
 # KyberSwap integration — what it is, what is built, what is left
 
-Branch: `worktree-kyberswap-integration`, off `feature/slippage-and-concentrated-liquidity`.
-Written 2026-09-18. Every number and behaviour marked **measured** below came from a live call
-against Robinhood Chain mainnet that day; everything else is from Kyber's documentation and
-source, cited inline.
+Written 2026-09-18; technical claims re-verified against chain and against `src/` on 2026-09-20
+at block **68,293,146**. Every number and behaviour marked **measured** below came from a live
+call against Robinhood Chain mainnet; everything else is from Kyber's documentation and source,
+cited inline.
+
+**Two things to know before reading.** First, this repository is contracts and tests only: §2
+describes work that lives in the separate application repository, and the `web-stable/` paths it
+cites do not resolve here. §1, §3 and §4 are the parts a KyberSwap reviewer needs, and they are
+self-contained. Second, the protocol fee moved from `beforeSwap` to `afterSwap` on 2026-09-19
+and is now charged on the swap's UNSPECIFIED leg. If you have an older copy of this document,
+or of `docs/AGGREGATOR_INTEGRATION.md`, that is the claim to re-read: §3.3 states the current
+behaviour and the Go plugin under `integrations/kyberswap-dex-lib/hooks/stables/` implements it.
 
 `docs/AGGREGATOR_INTEGRATION.md` is the companion to this file. It describes the Stables stack to
 an aggregator in aggregator-neutral terms and was written for 0x Settler. This one is
@@ -79,12 +87,21 @@ public repo. So it is either the auto-detection fallback or a generic fee-hook p
 read. **Either way our fee is being inferred rather than read**, and either way the ask in §3 is
 the same. Worth asking them outright rather than guessing.
 
-**One number to check before anything else.** In the same measurement, Kyber prices 1,000 units of
-a brand token at **$898**, not $1,000 — and a brand is a 1:1 claim on a reserve holding USDG. At
-1 brand the quote is sane (−0.3% round trip); at 1,000 brand the route reports a 29% loss. Either
-our pools really are that thin at that size, or the fallback's fitted model is wrong about them.
-Settle it by quoting the same size through `MarketLens.quoteBuy` and comparing — that comparison
-is also the evidence a dex-lib PR is required to ship, so it is work that has to happen anyway.
+**The pricing discrepancy, and its answer.** In the same measurement, Kyber priced 1,000 units
+of a brand token at **$898**, not $1,000 — and a brand is a 1:1 claim on a reserve holding USDG.
+At 1 brand the quote is sane (−0.3% round trip); at 1,000 brand the route reported a 29% loss.
+Either the pools really were that thin at that size, or the fallback's fitted model was wrong
+about them.
+
+**Settled on 2026-09-20 against `MarketLens.quoteBuy` at block 68,293,146: the pools really are
+that thin, and the fallback if anything flatters them.** Buying market 13's asset with 1,000
+USDG moves the price **+108.31%** against the 1-unit reference price, where Kyber's quote
+implied roughly 29%. The same shape holds across all six live pools (§3.5 carries the table).
+So there is nothing mispriced to fix on our side, and the honest framing for a listing
+conversation is that the v4 pools are early and small — about $37.7k of brand-side value across
+all six — while the deep leg is the reserve, which is §3.4. The plugin in §3.3 is still worth
+doing, but for accuracy rather than for depth: it replaces a fitted fee with a free exact read
+that can change between blocks.
 
 ---
 
@@ -93,11 +110,14 @@ is also the evidence a dex-lib PR is required to ship, so it is work that has to
 ### 2.1 Why this is worth doing
 
 Every market's stable side is a brand token, a 1:1 claim on a `SharedReservePool` holding USDG,
-so a USDG trade is already two legs. `MarketRouter.buyWithUsdg` hides both on the way in. On the
-way out the deployed router only reaches the brand (`sellForBrand`), so the redemption to USDG is
-a second call on `SharedReservePool.redeem`; the one-call `sellForUsdg` is in source but is not
-on chain, see `docs/AGGREGATOR_INTEGRATION.md` section 4. What the router cannot do in any case
-is *start from a token that is not USDG*.
+so a USDG trade is already two legs. `MarketRouter.buyWithUsdg` hides both on the way in.
+**There is a one-call sell to USDG on chain too, as of 2026-09-19:** `sellForUsdg`
+(`src/markets/MarketRouter.sol:430`, selector `0xb9077071`) does the pool leg and the redemption
+in one transaction, and `docs/AGGREGATOR_INTEGRATION.md` §4 carries the deployment detail. This
+paragraph used to say it was in source but not on chain; that stopped being true on 2026-09-19.
+`sellForBrand` remains for a caller who wants to stop at the market's own dollar and price the
+exit themselves. What the router cannot do in either case is *start from a token that is not
+USDG*.
 
 The app's only answer to that today is `web-stable/src/web3/eth-zap.ts`: one hand-picked Uniswap
 v3 WETH/USDG pool, chosen by reading `liquidity()` on four fee tiers, and quoted by
@@ -107,7 +127,8 @@ pool on the chain, impact priced in, multi-hop, in one HTTP call.
 
 ```
 buy  with X:  X --KyberSwap--> USDG --MarketRouter.buyWithUsdg--> asset
-sell to   X:  asset --MarketRouter.sellForBrand--> brand --SharedReservePool.redeem--> USDG --KyberSwap--> X
+sell to   X:  asset --MarketRouter.sellForUsdg--> USDG --KyberSwap--> X
+              (or asset --sellForBrand--> brand --SharedReservePool.redeem--> USDG --KyberSwap--> X)
 ```
 
 ### 2.2 The finding that shapes everything: `/route/build` is an encoder, not a re-quote
@@ -166,10 +187,10 @@ Each leg is then individually tighter and marginally likelier to revert — whic
 the alternative costs money. `kyberswap-route.test.mjs` asserts both halves of that: that the
 split bound clears the user's tolerance and that the naive version does not.
 
-This is the same decision the existing `SLIPPAGE_AND_CONCENTRATED_LIQUIDITY_PLAN.md` §1 is about
-to make for the single-venue case. The two should ship with one `<SlippageSettings>` control and
-one default; a route that crosses a venue we do not control is a good place for the warning that
-plan's item 4 already calls for.
+This is the same decision the application repository's slippage work is about to make for the
+single-venue case. The two should ship with one `<SlippageSettings>` control and one default; a
+route that crosses a venue we do not control is a good place for a warning. (The plan document
+that used to be cited here lives in that repository, not this one.)
 
 ### 2.5 One transaction or two
 
@@ -273,13 +294,16 @@ omitted, and it is what their support will ask for), but if the app's quote poll
 3. **A token list.** Kyber quotes anything it knows, but the app needs a curated list to show;
    `4011 token not found` is the failure for anything it does not (sUSDai, today).
 4. **Retire or re-point `eth-zap.ts`.** Once the aggregator leg exists, the hand-picked v3 pool
-   and its impact-free spot quote have no reason to remain. Note `LiquidityZapper` takes the v3
-   fee tier as a *contract* parameter, so the deposit path cannot be re-pointed without a
-   contract change; the trade path can.
+   and its impact-free spot quote have no reason to remain. Note `LiquidityZapper`
+   (`src/markets/LiquidityZapper.sol`) takes the v3 fee tier as a *contract* parameter, so the
+   deposit path cannot be re-pointed without a contract change; the trade path can. **Point at
+   V2, `0x57FA92648c722Bb28A0d011f020685B952110a2D`, and never at V1
+   `0x6f67108e7716A1f00902Ed219B055633fB2FE8Fd`:** V1 is ownerless and sandwichable, and is not
+   a surface to recommend to anyone, integrator or user.
 5. **Decide on `feeAmount` / `chargeFeeBy`.** Kyber can take a fee for us on either side of its
    leg, and in both cases `routeSummary.amountOut` comes back already net of it, so nothing needs
-   subtracting client-side. `docs/research/fee-decision-research.md` says hold protocol fees at
-   zero for now; this is the same decision and should get the same answer unless someone re-opens
+   subtracting client-side. The standing decision is to hold protocol fees at zero for now; this
+   is the same decision and should get the same answer unless someone re-opens
    it. Note separately that positive slippage and the dust collector both accrue to **KyberSwap**,
    not to the user and not to us — neither is configurable.
 
@@ -422,7 +446,7 @@ var _ = uniswapv4.RegisterHooksFactory(func(param *uniswapv4.HookParam) uniswapv
 }, HookAddresses...)
 ```
 
-`BeforeSwapResult` is precisely the shape of what `ProtocolFeeHook` does:
+The two callbacks the plugin has to model are shaped like this in dex-lib:
 
 ```go
 type BeforeSwapResult struct {
@@ -432,29 +456,51 @@ type BeforeSwapResult struct {
     Gas              int64
     SwapInfo         any
 }
+
+type AfterSwapResult struct {
+    HookFee *big.Int // CalcOut: out -= hook fee; CalcIn: in += hook fee
+    Gas     int64
+}
 ```
 
-Our hook skims the pool's rate off the swap's **input** — exact-in as a `BeforeSwapDelta` in
-`beforeSwap`, exact-out on the realised input in `afterSwap`. In plugin terms that is
-`DeltaSpecified` and `AfterSwapResult.HookFee`, on the same `1e6` denominator (`FeeDenom`) the
-other fee hooks use. `hookData` is empty, so `GetHookData` returns `EmptyBytes`.
+**Only the second one carries our fee, and that is the single most important sentence in this
+section.** Since 2026-09-19 `ProtocolFeeHook.beforeSwap` returns
+`BeforeSwapDeltaLibrary.ZERO_DELTA` unconditionally and charges nothing — it is in the callback
+list purely to write an oracle observation — so **`DeltaSpecified` and `DeltaUnspecified` are
+both always zero**. The entire fee is `AfterSwapResult.HookFee`, taken off the swap's
+UNSPECIFIED leg and computed from the `BalanceDelta` the pool actually produced, on the same
+`1e6` denominator (`FeeDenom`) the other fee hooks use. dex-lib's own comment on `HookFee`
+("CalcOut: out -= hook fee; CalcIn: in += hook fee") is exactly our rule stated in the
+simulator's vocabulary, so the mapping is direct. `hookData` is empty, so `GetHookData` returns
+`EmptyBytes`.
+
+An earlier revision of this document said the hook skimmed the **input** — exact-in as a
+`BeforeSwapDelta` in `beforeSwap`, exact-out in `afterSwap`. That is the pre-2026-09-19
+behaviour and it is now wrong in both halves. The staged Go plugin is correct; if the two ever
+disagree, the code and `src/markets/ProtocolFeeHook.sol` win over this file.
 
 dex-lib reads hook permissions by decoding the last two bytes of the hook address as a bitmap,
-exactly as v4 does, so our mined `0x00CC` is understood with no work. One detail to confirm rather
-than assume: `NewPoolSimulator` **refuses a pool outright** (`shared.ErrUnsupportedHook`) when
-`HasSwapPermissions` is true and nothing is registered for the address. Our pools quote today, so
-something is handling ours — the §1.1 question restated from the other side. Note that only one
-of the simulator's two levers now applies to us: since 2026-09-19 the hook charges nothing in
-`beforeSwap`, so `DeltaSpecified` is always zero and `HookFee` off the output after the curve
-math is the whole of it.
+exactly as v4 does, so our mined `0x00CC` is understood with no work. One detail to confirm
+rather than assume: `NewPoolSimulator` **refuses a pool outright** (`shared.ErrUnsupportedHook`)
+when `HasSwapPermissions` is true and nothing is registered for the address. Our pools quote
+today, so something is handling ours — the §1.1 question restated from the other side.
 
 Three ways the plugin must differ from the `cashcat` template, all of them easy to get wrong:
 
-1. **Our fee is mutable** — owner-settable per pool up to `MAX_FEE_PIPS`, which was lowered from 5% to **1%** on
-   2026-09-19, in one transaction,
-   with no timelock. `cashcat` reads its rate once and persists it because it is immutable for the
-   pool's life. Ours re-reads on every `Track`, or a fee change silently mis-prices every route
-   until the pool is re-listed.
+1. **Our fee is mutable, and an increase is announced an hour ahead.** It is owner-settable per
+   pool up to `MAX_FEE_PIPS`, which was lowered from 5% to **1% (10,000 pips)** on 2026-09-19.
+   A DECREASE applies immediately and cancels anything pending; an INCREASE is scheduled by
+   `setPoolFeePips` and can only be applied `FEE_INCREASE_DELAY` — **3,600 seconds** — later, by
+   a permissionless `commitPoolFeePips(poolId)`, with the ceiling re-checked at commit. So a
+   rate a router read cannot be raised under a quote inside the hour. `cashcat` reads its rate
+   once and persists it because it is immutable for the pool's life; ours re-reads on every
+   `Track`, because a decrease needs no notice and neither does the halt in item 2.
+
+   **Read the delay as reliability, not as governance.** The hook is a UUPS proxy owned by a
+   2-of-3 Gnosis Safe (`0x28569c1716EF81f307d666A1EC08bDAE92AC0373`) with **no upgrade
+   timelock**, so the owner can replace the implementation — and the ceiling and the delay with
+   it — in a single transaction. Say that plainly to Kyber rather than letting them infer a
+   guarantee that is not there.
 2. **Read `feePipsFor`, never `feePipsOf`.** `feePipsFor` returns 0 both when the pool has no fee
    recipient bound and while the protocol guard reports a halt — and trading continues in both
    cases. `feePipsOf` is the raw stored value and would over-charge every quote during a halt.
@@ -484,16 +530,18 @@ external v4 hook PRs generally is 1–8 days.
 A merged PR does *not* enable the source, though. Which sources run on which chain is Kyber-side
 deployment config in their `pool-service`, invisible from the public repo — ask for the flip in
 the PR conversation, and name the chain-4663 values they will need: `UniversalRouterAddress`,
-`Permit2Address`, `Multicall3Address` (`0xcA11bde05977b3631167028862bE2a173976CA11`) and
-`StateViewAddress`. Discovery is the open question there: the v4 lister is subgraph-driven and
+`Permit2Address` (`0x000000000022D473030F116dDEE9F6B43aC78BA3`), `Multicall3Address`
+(`0xcA11bde05977b3631167028862bE2a173976CA11`) and `StateViewAddress`
+(`0xa7D3DeD16C94F4FBAb1Fc24a0c6243043A67A804`, Uniswap's own, unmodified, already deployed).
+Discovery is the open question there: the v4 lister is subgraph-driven and
 Robinhood has no subgraph, so the route is log-based discovery off the PoolManager's `Initialize`
 event plus `FetchTickFromStateView` — which is what dex-lib's own guidance prefers anyway
 ("discover pools on-chain over off-chain indexes").
 
-`integrations/kyberswap-dex-lib/hooks/stables/` in this branch carries the plugin — `hook.go`,
-`constant.go`, the ABI and a test suite pinned to the live 5,000-pip rate — staged for a PR into
-`pkg/liquidity-source/uniswap/v4/hooks/stables/`. Its README lists the two edits their tree needs
-beyond the directory itself.
+`integrations/kyberswap-dex-lib/hooks/stables/` carries the plugin — `hook.go`, `constant.go`,
+the ABI, and `hook_test.go` plus `hook_live_test.go` pinned to the live 5,000-pip rate — staged
+for a PR into `pkg/liquidity-source/uniswap/v4/hooks/stables/`. Its README lists the two edits
+their tree needs beyond the directory itself, and is the file to keep in step with the Go code.
 
 **Why this is worth doing even though routing already works:** the fallback fits a fee by probing
 a quoter. Ours is a number that can be read for free and can change between blocks. Reading it is
@@ -507,9 +555,23 @@ from USDG at par it needs the `SharedReservePool` as its own hop:
 
 | Call | Arithmetic | Cap |
 |---|---|---|
-| `mint(brand, amount, receiver)` | `out = in`, 1:1, no fee | `liabilityCap − totalPooledSupply`; zero while paused |
-| `redeem(brand, amount, receiver, minAssetsOut)` | `out = in − ⌊in·feeBps/10000⌋` — 20 bps on the live sUSDai reserve, 0 on the USDG/Morpho one | idle balance + what the yield source releases, **less one unit** |
-| `swap(brandIn, brandOut, amount, receiver)` | `out = in`, no fee, same reserve only | none |
+| `mint(brand, amount, receiver)` | `out = in`, 1:1, no fee | `liabilityCap − totalPooledSupply`; zero while paused. On the live sUSDai reserve that headroom is ~9.96M USDG |
+| `redeem(brand, amount, receiver, minAssetsOut)` | `out = in − ⌊in·feeBps/10000⌋` — 20 bps on the live sUSDai reserve, 0 on the USDG/Morpho one | idle balance + what the yield source releases, **less one unit**. ~35,276 USDG redeemable on sUSDai |
+| `swap(brandIn, brandOut, amount, receiver)` | `out = in`, no fee, same reserve only. Note the amount is the THIRD argument, so its calldata offset is 68 and not 36 | none |
+
+Two properties of the fee that a simulator needs and would not otherwise infer:
+
+- **`redemptionFeeBps` is capped at `MAX_REDEMPTION_FEE_BPS` = 100 (1%)**, and an INCREASE must
+  be announced `FEE_INCREASE_DELAY` = 3,600 seconds ahead and then committed by a permissionless
+  `commitRedemptionFee()`. A decrease is immediate and cancels a pending increase. So
+  `previewRedeem`, which quotes the LIVE fee and never a pending one, is good for at least an
+  hour in the adverse direction; `redemptionFeeEffectiveAt() == 0` is the single read that says
+  nothing is scheduled. The same no-timelock caveat as §3.3 applies: the owner can upgrade the
+  pool and remove the delay in one transaction.
+- **Use the four-argument `redeem`.** The three-argument overload is now strict too — it derives
+  its floor from par less the live fee, the same number `previewRedeem` returns, and reverts
+  rather than under-paying — but it binds the caller to whatever fee happens to be live when the
+  transaction lands. The four-argument form lets the simulator's own quote be the bound.
 
 Two ways to give Kyber that hop:
 
@@ -529,9 +591,10 @@ is **shared inventory across every brand in the group** rather than per pool —
 which nothing else in dex-lib would infer. This needs Kyber's executor to learn one new call.
 
 `MarketLens` (`src/markets/MarketLens.sol`, written for the 0x work) is the on-chain surface both
-options read: `maxMint`, `redeemableAssets`, `brandForRedeem`, `route`. **Deploy it before opening
-either PR** — a reviewer will ask how a simulator is meant to learn the caps, and this is the
-answer.
+options read: `maxMint`, `redeemableAssets`, `brandForRedeem`, `route`. **It is deployed, at
+`0x0a3d8332D949b4aE650f3aC6468620e403a50fF1`** — ownerless and stateless — so the answer to "how
+is a simulator meant to learn the caps" is a live address rather than a promise. This paragraph
+used to say "deploy it before opening either PR"; that was done on 2026-09-19.
 
 ### 3.5 What a dex-lib PR has to contain
 
@@ -540,29 +603,50 @@ explorer links, sample transactions, fixtures, and quote-comparison evidence —
 output against real on-chain fills. Full test coverage, `goimports -local`, and
 `go generate ./pkg/msgpack/...` if simulator types changed.
 
-Three of those we do not have, and they are the real blockers:
+Two of those we do not have, and they are the real blockers:
 
-- **Verified source.** Nothing in the v6 stack is verified on Blockscout
-  (`deployments/asset-markets-mainnet-v6.json`). A reviewer asked to trust a pricing model will
-  want the contracts readable on an explorer.
-- **Sample fills.** Six markets have liquidity and dollar-side depth in the tens of thousands —
-  enough to produce real fills to compare against, but somebody has to produce them. This is the
-  same work as resolving the §1.1 pricing question, so do it once.
-- **Stability.** That manifest documents gen-4, gen-5 and gen-6 inside a fortnight. A listing pins
-  addresses; the stack needs to stop moving first.
+- **Sample fills.** Six markets have liquidity, but not much: about $37.7k of brand-side value
+  across all six, and a 1,000-USDG buy moves market 13 by +108%. That is enough to produce real
+  fills to compare a simulator against, and small enough that the comparison has to be done at
+  sizes a reviewer will find unimpressive. Somebody has to produce them.
+
+  | id | Asset | spot (USDG) | impact at 100 | at 1,000 | at 10,000 | approx TVL |
+  |---|---|---|---|---|---|---|
+  | 13 | NVDA | 249.4821 | +10.73% | +108.31% | +1084.04% | ~$1,855 |
+  | 14 | SPCX | 170.8470 | +13.13% | +132.47% | +1325.86% | ~$1,516 |
+  | 15 | AI | 0.2865 | +10.93% | +110.31% | +1104.04% | ~$1,822 |
+  | 16 | SDOGE | 0.00004087 | +1.18% | +11.93% | +119.40% | ~$17,503 |
+  | 17 | ABR | 0.00000515 | +3.40% | +34.26% | +342.95% | ~$5,924 |
+  | 18 | CORGIGG | 0.0000120 | +2.22% | +22.44% | +224.61% | ~$9,116 |
+
+  Measured through `MarketLens.quoteBuy` at block 68,293,146. Frame the reserve as the real
+  liquidity and the pools as early; do not oversell them.
+- **Stability.** `deployments/asset-markets-mainnet-v6.json` documents gen-4, gen-5 and gen-6
+  inside a fortnight. A listing pins addresses; the stack needs to stop moving first.
+
+**Verified source is no longer a blocker.** The v6 contracts are verified on **Sourcify** as
+`exact_match`, compiler `v0.8.26+commit.8a97fa7a`, optimizer 200 runs, `via_ir = true`. Sourcify
+rather than Blockscout because Blockscout's verify API on this chain sits behind a Cloudflare
+challenge; verify by standard-JSON input, never flattened (`script/verify-mainnet-sourcify.sh`).
+An earlier draft of this section listed "nothing in the v6 stack is verified" as a blocker.
 
 ### 3.6 The ask, in the order to make it
 
-1. Deploy `MarketLens`; verify the v6 contracts on Blockscout.
-2. Reconcile `MarketLens.quoteBuy` against Kyber's live quote at several sizes. Either it agrees —
-   in which case the depth is simply thin and there is nothing to fix — or the fallback's fitted
-   model is wrong, and that measurement becomes the opening line of the PR.
-3. Open the **hook plugin** PR (§3.3). Smallest possible change, an executor path that already
+Steps 1 and 2 of the original list are **done**, and are recorded here rather than dropped
+because the PR wants to cite them: `MarketLens` is deployed at
+`0x0a3d8332D949b4aE650f3aC6468620e403a50fF1`, the v6 contracts are verified on Sourcify as
+`exact_match`, and `MarketLens.quoteBuy` has been reconciled against Kyber's live quote at
+block 68,293,146. The reconciliation's answer — the pools are genuinely thin and the fallback
+understates the impact — is §1.1 and §3.5. What remains:
+
+1. Produce real fills on the six live pools and diff them against the plugin's simulator output.
+   This is the last thing dex-lib's contribution rules ask for that we do not have.
+2. Open the **hook plugin** PR (§3.3). Smallest possible change, an executor path that already
    settles our pools today, and a named exchange id instead of a fitted fallback.
-4. In the same conversation, ask whether `generic-simple-rate` can be configured for the zero-fee
+3. In the same conversation, ask whether `generic-simple-rate` can be configured for the zero-fee
    USDG reserve as an interim USDG↔brand hop, flagging its capacity blindness explicitly so nobody
    is surprised by a revert.
-5. Propose `stables-reserve` for the capped, fee-bearing case and ask what executor work it
+4. Propose `stables-reserve` for the capped, fee-bearing case and ask what executor work it
    implies. Expect this to be the long pole.
 
 A dex-lib PR alone is necessary but not sufficient: the executor and per-chain enablement are
@@ -616,44 +700,31 @@ eligible pools, `4011` unknown token, `4221` no WETH configured.
 
 ---
 
-## 5. Working in this worktree
+## 5. Where the code lives
 
-`.claude/worktrees/kyberswap-integration`, branch `worktree-kyberswap-integration`, branched off
-`feature/slippage-and-concentrated-liquidity` so the slippage work in that branch is untouched.
-Nothing here is committed.
+This document was written in a worktree that no longer exists, and the section that used to sit
+here described that worktree's branch, its symlinked `lib/`, its Foundry artifact directories and
+a locally corrupted `npm ci`. None of that survives the extraction into this repository, and none
+of it was ever of any use to a reviewer, so it is gone.
 
-**`lib/` is a symlink to the main checkout's `lib/`, and that is why `git status` shows four
-deleted submodules.** They are not deleted. Git could not check them out here — writing a
-`.gitmodules` inside a submodule is denied in this environment — so the symlink borrows the main
-checkout's, which are complete. To make this a normal worktree, `rm lib && git submodule update
---init --recursive` from a shell without that restriction.
+What matters for locating the work:
 
-`out-kyber/` and `cache-kyber/` are this worktree's Foundry artifacts, kept separate so a build
-here cannot race one in another worktree. They are untracked build output; delete them freely.
+- **The dex-lib plugin is in this repository**, at
+  `integrations/kyberswap-dex-lib/hooks/stables/`. It is not part of this repository's build:
+  there is no `go.mod`, and the files only compile inside dex-lib's module. Its own README is the
+  authority on what it does and how to apply it to a dex-lib checkout.
+- **The contracts it models are in this repository**, principally
+  `src/markets/ProtocolFeeHook.sol` (the hook), `src/markets/MarketLens.sol` (the quoting and
+  capacity surface), `src/markets/MarketRouter.sol` and `src/pool/SharedReservePool.sol` (the
+  reserve leg of §3.4).
+- **The TypeScript aggregator client of §2 is not in this repository.** It lives in the
+  application repository, which is not part of this handoff. Every `web-stable/` and
+  `packages/market-core/` path in §2 refers to that repository.
 
-Commands, each one line:
-
-```
-FOUNDRY_OUT=out-kyber FOUNDRY_CACHE_PATH=cache-kyber forge test --offline --no-match-contract Fork
-```
-
-Note the exclusion in that one: `AGENTS.md` suggests `--no-match-path 'test/*Fork*'`, and that
-glob does **not** match the fork suites nested under `test/markets/` and `test/launchpad/`. One
-of them then runs, fails to reach an RPC, and takes the whole run down with a Rust panic.
-`--no-match-contract Fork` excludes all of them.
-
-```
-node --test tests/kyberswap-client.test.mjs tests/kyberswap-route.test.mjs
-```
-
-```
-node scripts/kyberswap-dry-run.mjs
-```
-
-Last run here: 571 Foundry tests passed (0 failed, fork suites excluded), 679 frontend tests
-passed, the dry run passed against block 66,623,262.
-
-`npm --prefix web-stable run typecheck` reports 28 errors in this worktree, none in any file added
-here. They come from a partially corrupted `npm ci` — several tarballs unpacked truncated, which
-also broke `oxlint`'s native binary until it was replaced from the main checkout. Re-run `npm ci`
-before reading anything into them.
+The one thing worth carrying forward from the old section, because it constrains how anything
+here can be tested: **Robinhood Chain's public RPC is not an archive node.** It prunes state to
+roughly 100 seconds to 17 minutes of history, so a Foundry fork test pinned to a block stops
+answering within minutes of being chosen. Every end-to-end proof on this chain is a live run
+against the head, and there is no way to make one reproducible in CI without an archive node.
+§2.8 explains why the aggregator dry run is a script rather than a fork test for exactly this
+reason.

@@ -576,4 +576,19 @@ on its own; it is listed here so nothing is a surprise.
 12. **`deployments/mainnet-state.json` is a dated snapshot and drifts.** Its fee-recipient
     entries, for instance, predate the repointing of markets 13 through 16 to the Safe, which is
     live on chain. Read governance and balances from the chain, using the manifest only as an
-    address book. Regenerate it with `node script/sync-mainnet-state.mjs`.
+    address book. The regeneration script `sync-mainnet-state.mjs` lives in the application
+    repository rather than here, because it resolves its dependencies through that project.
+
+13. **USDG's issuer can pause or freeze the reserve asset, and that dominates everything else
+    here.** USDG `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` is not a plain ERC20. It is an
+    ERC-1967 proxy, implementation `0x68184c449e1a8f34fa18d289737129fd27b66f8f` at the time of
+    writing, and it exposes both `paused()` and `isFrozen(address)`. Both currently read false,
+    including `isFrozen` for the sUSDai reserve `0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2`,
+    and `pause()` is role-gated on the issuer rather than on us.
+
+    If the issuer pauses the token or freezes the reserve's address, redemption stops working
+    no matter how correct our code is. Our deliberately unpausable redemption path does not
+    help, because the block lives in the token and not in the pool. Nothing in this repository
+    can mitigate it and no amount of review of our contracts will surface it, since it is
+    invisible from `src/`. It is the largest centralization risk in the system and it is
+    entirely outside our control. We would rather state it than have it found.

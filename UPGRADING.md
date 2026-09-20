@@ -1,359 +1,352 @@
 # Upgrading
 
-How to change deployed contract logic on Robinhood Chain mainnet, and what you cannot change.
+How to change deployed contract logic on Robinhood Chain mainnet (`chainId 4663`), who is
+allowed to, and what nobody can change.
 
-Every address below is the live generation in `web/.env.mainnet`, read back from chain on
-2026-09-08 after the post-review redeploy (the README's deployment table is the full set).
+Every address here was read back from chain and is pinned by a test, not by this file:
+`test/OwnershipMigrationMainnetFork.t.sol` for the ownership end state,
+`test/LiveGen5Mainnet.t.sol` for the live behaviour, `test/upgrade/UpgradeInvariants.t.sol`
+for storage layout. If this page and one of those disagree, the test is right.
 
-> **⚠ The timelock delay is currently ZERO.** Schedule and execute land in the same block,
-> so the beacon is effectively owned outright by the deployer EOA. This is a pre-launch
-> iteration setting. **Raising it is a launch blocker** — see *Limits* at the bottom.
+> **There is no timelock. None.** The Safe can deploy an implementation and point a proxy at
+> it in a single transaction, with no announcement and no window in which anyone can react.
+> This is the honest description of the current deployment and it is stated first because
+> every other control below is weaker than a reader might assume from it. The two fee delays
+> that do exist (see *Delayed parameters*) are reliability guarantees for quoting integrators,
+> not security guarantees, because an upgrade can remove them in one transaction.
 
 ---
 
-## What is upgradable
+## Who holds what
 
-| Contract | Address | Mechanism | Controlled by |
-|---|---|---|---|
-| **All BrandedVaults** | via beacon `0x1a874e79Ab3cfC70362C4aA245130b96F6e38Baa` | `UpgradeableBeacon.upgradeTo` | Timelock |
-| **BrandedVaultFactory** | proxy `0x1A5393af478B28c8AA3E60eAD24Ac8269ae059bb` | UUPS `upgradeToAndCall` | Timelock |
-
-Current implementations: vault `0x19F9fDeafaF9cBD8C2140f40632e59de972e1E96`, factory
-`0x8658354fd7CfA74eE12a82b47FCab3Ce7967709c`.
-
-**One beacon upgrade changes every vault at once** — existing and future, instantly, with no
-per-vault migration. That is the feature and the danger.
-
-## What is NOT upgradable
-
-| Contract | Address | Replaceable? |
+| Role | Address | Powers |
 |---|---|---|
-| `StablecoinLauncher` | `0xecF46dC819Ef7523b842852B1026a5622889FB11` | **No** — see below |
-| `SweepKeeper` | see README (not recorded for the live generation) | Yes — deploy a new one, re-register jobs |
-| `MorphoBlueYieldSource` | `0x7CEDfC7d33336c59461350f411271C0ce6AF4343` | Yes — `vault.setYieldSource(new)`, brand only |
-| `PoolDeployer` / `MarketLauncher` / `MemecoinFactory` | see README | Yes — deploy new, re-point clients |
-| `VaultTreasury` (per vault) | via `factory.getTreasury(vault)` | Yes — `treasury.setVaultBrand(newBrand)`. **Migration pending, see below** |
+| Owner | Gnosis Safe `0x28569c1716EF81f307d666A1EC08bDAE92AC0373` | Everything: upgrade any proxy, move any beacon, set every parameter, resume from a pause, replace the guardian |
+| Guardian | `0xc1d844d6478e450E62293882d2d6739c4a8693F9` | `pause` and `pauseTarget`, immediately. Nothing else |
+| Retired deployer | `0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9` | No ownership anywhere, not the guardian. Still named as a fee *recipient* — see below |
 
-### The launcher is permanent for coins already launched
+The Safe is v1.4.1 (SafeL2 singleton), **threshold 2 of 3**. Its three signers are
+`0x668da5c12aF33106EEdbC298bF4Ec5555B803437`,
+`0x176658D816C15a30Fa4165d48584037Bb89Ee4b2` and
+`0xAc865dda2d00A8683B87B45d9F3598CF11f92Cb9`; none of them is the retired deployer.
+`test_fork_theSafeIsATwoOfThreeThatHasAlreadyTransacted` asserts the threshold, the signer
+count, their distinctness and that the Safe has executed before, so the signing path is
+proven by the chain rather than by assertion here.
 
-`StablecoinLauncher`'s entire external surface is `launch`, `launchAtPar`, `sweep` and
-`onERC721Received`. There is no owner, no arbitrary call, and **no way to transfer the sell
-wall's LP NFT out of it**. `BrandedVault.configureSeed` is one-shot, so a replacement
-launcher can never become an existing vault's `seedMinter`.
+### The guardian is deliberately not the Safe
 
-That is deliberate — it is what stops a brand from re-pointing the unbacked mint at an
-address they control — but it is one-way. If `sweep` ever proves broken for `sphUSDG`:
+`ProtocolGuard` (`0x013D1974F8215a12280e6b9a33F9732277F38C0e`) splits halting from resuming.
+`pause`/`pauseTarget` are `onlyGuardianOrOwner`; `unpause`, `unpauseTarget`, `setGuardian` and
+`_authorizeUpgrade` are `onlyOwner`. Halting is incident response and has to work in the
+minute an exploit starts, with one key, without waking a second signer. Resuming is the slow
+path on purpose: a stolen guardian key buys an attacker a denial of service that the Safe
+unwinds, whereas a key that could resume could un-halt a drain in progress.
 
-- the USDG buyers pay in can never reach the vault, so no yield ever accrues on it
-- `maxRedeem` stays capped, so NAV redemption stays broken
-- holders can still exit by selling back into the pool on Uniswap, at market rather than NAV
-- upgrading `BrandedVault` does **not** rescue it — the NFT is still stuck in the launcher
-- the only real fix is relaunching a new coin with a fixed launcher
+`test_fork_theGuardianIsStillAHotKeyThatActsAlone` proves all three halves of this against
+live state: the guardian is not the Safe, it can halt a target, it reverts on unpause, and
+the Safe can resume.
 
-**If you want an escape hatch, add it to `StablecoinLauncher` before the next launch.**
-Already-launched coins cannot be retrofitted.
+Two things pausing deliberately does **not** reach, and both must stay that way:
+
+- `SharedReservePool.redeem` carries no `whenNotPaused`. A brand token is a 1:1 claim, and a
+  claim that can be suspended is not a claim. Holders can exit while everything else is
+  halted, especially then. (`test_redemptionSurvivesAPause`)
+- Brand-token transfers. A holder who cannot move the token cannot reach wherever they would
+  redeem or sell it. (`test_brandTransfersSurviveAPause`)
+
+`ProtocolFeeHook` also does not revert when paused: `feePipsFor` returns zero and trading
+continues fee-free. A halt must never brick a Uniswap v4 pool that other people's routers
+are already quoting.
+
+---
+
+## The sixteen handles
+
+These are every address with an owner. The list is pinned by
+`test_fork_everySingleHandleIsOwnedByTheSafe`; add a handle to the protocol and add it there
+too, or the sweep silently stops covering it.
+
+**Two-step (`Ownable2Step`): transfer nominates, the successor must accept.**
+
+| Contract | Address | Mechanism |
+|---|---|---|
+| `StrategyGroupRegistry` | `0xBd02B0f3253F31dD02A752582e7b8974589333f7` | UUPS |
+| gen-4 `AssetMarketFactory` (abandoned) | `0xbE2fb491C37F19E723F86A8cAcA625B4Ba75a5E7` | UUPS |
+| `LaunchLocker` | `0x2F26F8fE6c8f6BA3F72D062f1a4E64fFe596963C` | Not upgradeable |
+| `ProtocolGuard` | `0x013D1974F8215a12280e6b9a33F9732277F38C0e` | UUPS |
+| `MorphoBlueYieldSource` | `0x8e4E5e5EE25DF4721D845600F82bf2Bca48Fa358` | UUPS |
+| `SUSDaiYieldSource` | `0x460f319E43428387bff58ec262C992Ec7DA22fDc` | UUPS |
+| `LaunchFactory` | `0x95fe000285DA7797cC01394cCc410628B26e898d` | UUPS |
+| `MarketRouter` | `0x7553919210B172438853C3694Fd88fAfD4bE3Eb4` | UUPS |
+| `ProtocolFeeHook` | `0xc9932584c5154e4F58313a2e5423522E74e540Cc` | UUPS |
+| `AssetMarketFactory` | `0x22AA61c589B90731752236c07d1455D0065bfc79` | UUPS |
+| `SharedReservePool`, USDG/Morpho | `0xdB485351d953F10FAA7c820B7648f6E91d9Cd9F3` | UUPS |
+| `SharedReservePool`, sUSDai | `0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2` | UUPS |
+
+**Beacons (plain `Ownable`): transfer is one step and irreversible.**
+
+| Beacon | Address | Moves |
+|---|---|---|
+| `BrandFeeVault` | `0x65876276feE875e1A120F63575150593E6AEa0d3` | Every market's fee vault |
+| `LpRewardDistributor` | `0xb6b86f5A01d8c04f68f827532C8aCE9458Db57a6` | Every market's reward distributor |
+| `PooledBrandToken` | `0x1964b405C09CF252d835A80556536C86dcbE105F` | Every brand stablecoin in every reserve |
+| `PoolBrandTreasury` | `0xf8b758dfb9d22448Ab13C7FcC1f23b75A998C34E` | Every brand treasury |
+
+`pendingOwner()` is the zero address on all twelve two-step handles: no nomination is
+outstanding anywhere, which matters because a stale nomination is a live claim anybody
+holding that address can accept later.
+(`test_fork_noNominationIsLeftOutstanding`)
+
+**One beacon upgrade changes every clone at once**, existing and future, instantly, with no
+per-instance migration. That is the feature and the danger.
+(`test_oneBeaconUpgradeMovesEveryBrandAtOnce`,
+`test_brandsRegisteredAfterAnUpgradeUseTheNewImplementation`)
+
+`MarketLens` (`0x0a3d8332D949b4aE650f3aC6468620e403a50fF1`) has no owner and no state. It is
+replaced by deploying a new one and re-pointing readers, not upgraded.
 
 ---
 
 ## Before you upgrade anything: storage rules
 
-This is the part that loses money. A bad layout does not revert — the proxy silently
-reinterprets live state, so `seedMinted` starts being read as `lastHarvestPPS` on real
-balances, across every vault simultaneously.
+This is the part that loses money. A bad layout does not revert. The proxy silently
+reinterprets live state, and on a reserve holding real backing that means `totalPooledSupply`
+starts being read as `lossCarryforward` against real balances.
 
-`BrandedVault` currently occupies **55 slots**: 11 declared (0–10) plus `__gap[44]`
-(11–54). Verify any time with `forge inspect BrandedVault storageLayout`.
+`test/upgrade/UpgradeInvariants.t.sol` is the alarm. It pins the total storage footprint of
+every upgradeable contract and the individual slot of every field on the reserve and the
+registry, by writing through a probe and reading raw slots. Run it before proposing anything:
 
-Rules for a V2:
+```
+forge test --match-contract UpgradeInvariants -vv
+```
 
-1. **Only append.** New variables go immediately before `__gap`, never inserted or
-   reordered, never retyped, never removed.
-2. **Shrink `__gap` by exactly the number of slots you added**, so the 55-slot footprint is
-   unchanged. Two `address` fields do not share a slot — that is 2 slots, not 1.
-3. **Update `test_storageLayout_slotsArePinned`** in `test/Upgradeability.t.sol`
-   deliberately, as a review checkpoint. Never edit it just to make a red test go green —
-   that test failing is the alarm working.
-4. `initialize` has `initializer` and cannot run again. New state needs a `reinitializer(n)`
-   function, executed through the same timelock flow.
+Rules for any new version:
 
-Run `forge test --match-contract Upgradeability` before proposing anything.
+1. **Only append.** New variables go immediately before `__gap`, never inserted, reordered,
+   retyped or removed.
+2. **Shrink `__gap` by exactly the number of slots you added**, so the footprint is unchanged.
+   `SharedReservePool` already did this once: its gap is `uint256[39]`, shrunk from 40 when
+   the packed `pendingRedemptionFeeBps`/`redemptionFeeEffectiveAt` slot was added, which is
+   why the end of storage is exactly where it was for both live proxies.
+3. **`ProtocolFeeHook` carries no `__gap` and that is correct** — it is a leaf that nothing
+   inherits, so appending at the end is safe and no existing slot moves. Do not add a gap to
+   it now; that would itself be a layout change.
+4. **Update the footprint number in `UpgradeInvariants` deliberately**, as a review
+   checkpoint. Never edit it to make a red test green. That test failing is the alarm working.
+5. `initialize` carries `initializer` and cannot run again. New state needs a
+   `reinitializer(n)`, called through `upgradeToAndCall`'s data argument in the same
+   transaction as the upgrade.
+6. Every implementation ships with its initializer locked in the constructor
+   (`_disableInitializers()`), and
+   `test_everyImplementationShipsWithItsInitializerLocked` sweeps for it. An unlocked
+   implementation can be initialized by a stranger who then owns a contract a live proxy
+   delegates into.
 
 ---
 
 ## Rehearse on a fork first
 
-Non-negotiable for the beacon: it touches every vault at once.
+Non-negotiable for a beacon, because it touches every clone at once, and strongly advised for
+the reserves, which hold the backing.
 
 ```bash
-anvil --fork-url https://rpc.mainnet.chain.robinhood.com --port 8545
+script/rehearse-mainnet.sh
 ```
 
-Then run the whole schedule/execute flow below against `http://127.0.0.1:8545`, using
-`cast rpc anvil_impersonateAccount` for the proposer. If the delay is non-zero by then, jump
-it with `cast rpc evm_increaseTime <delay>`. Confirm afterwards that a real vault reports the
-right
-`totalAssets`, `circulatingSupply`, `seedMinted` and `convertToAssets(1e6)`.
+That stands the whole stack up on a local fork using the same deploy scripts and the same
+runbook commands a real deployment uses, then launches and seeds a market on it. It redirects
+`FOUNDRY_BROADCAST` to a temp directory so a rehearsal cannot overwrite the real mainnet
+records under `broadcast/<script>/4663/`.
+
+For a single upgrade, a bare fork plus impersonation is enough:
+
+```bash
+script/anvil-fork.sh
+```
+
+Then `cast rpc anvil_impersonateAccount 0x28569c1716EF81f307d666A1EC08bDAE92AC0373` and send
+the upgrade from the Safe address directly. Afterwards confirm the proxy still answers the
+same: for a reserve that is `asset()`, `yieldSource()`, `owner()`, `totalPooledSupply()`,
+`liabilityCap()`, `redemptionFeeBps()` and `totalAssets() >= totalPooledSupply()`.
 
 ---
 
-## Procedure A — upgrade every vault (beacon)
+## Procedure A — upgrade a UUPS proxy
 
-**1. Deploy the new implementation.** It must never be initialized directly; the constructor
-already calls `_disableInitializers()`.
+Authority is `_authorizeUpgrade`'s `onlyOwner`, so the upgrade call itself must come from the
+Safe. Deploying the implementation does not.
 
-```bash
-forge create src/BrandedVault.sol:BrandedVault --rpc-url $ETH_RPC_URL --private-key $PRIVATE_KEY
-```
-
-**2. Build the calldata.**
+**1. Deploy the new implementation.** Permissionless, any funded key. It must never be
+initialized directly; the constructor already calls `_disableInitializers()`.
 
 ```bash
-cast calldata 'upgradeTo(address)' <NEW_IMPL>
+forge create src/pool/SharedReservePool.sol:SharedReservePool --rpc-url robinhood --private-key $PRIVATE_KEY
 ```
 
-**3. Compute the operation id.** Pick a unique `SALT` — reusing one with identical calldata
-collides with a past operation and `schedule` reverts.
-
-```bash
-cast call 0x073fAE6c633e914e3BEf20e71b0352742C70508B 'hashOperation(address,uint256,bytes,bytes32,bytes32)(bytes32)' 0x1a874e79Ab3cfC70362C4aA245130b96F6e38Baa 0 <CALLDATA> 0x0000000000000000000000000000000000000000000000000000000000000000 <SALT> --rpc-url $ETH_RPC_URL
-```
-
-**4. Schedule it.** Delay must be ≥ the current `getMinDelay()`, which is `0` today — so
-pass `0` and it is executable immediately. Once you raise the delay before launch, pass that
-value here instead.
-
-```bash
-cast send 0x073fAE6c633e914e3BEf20e71b0352742C70508B 'schedule(address,uint256,bytes,bytes32,bytes32,uint256)' 0x1a874e79Ab3cfC70362C4aA245130b96F6e38Baa 0 <CALLDATA> 0x0000000000000000000000000000000000000000000000000000000000000000 <SALT> 0 --rpc-url $ETH_RPC_URL --private-key $PRIVATE_KEY
-```
-
-**5. Wait for the delay.** At zero there is no wait — it is ready in the same block. Check
-either way:
-
-```bash
-cast call 0x073fAE6c633e914e3BEf20e71b0352742C70508B 'isOperationReady(bytes32)(bool)' <ID> --rpc-url $ETH_RPC_URL
-```
-
-**6. Execute** — same arguments, minus the delay:
-
-```bash
-cast send 0x073fAE6c633e914e3BEf20e71b0352742C70508B 'execute(address,uint256,bytes,bytes32,bytes32)' 0x1a874e79Ab3cfC70362C4aA245130b96F6e38Baa 0 <CALLDATA> 0x0000000000000000000000000000000000000000000000000000000000000000 <SALT> --rpc-url $ETH_RPC_URL --private-key $PRIVATE_KEY
-```
-
-**7. Verify.**
-
-```bash
-cast call 0x1a874e79Ab3cfC70362C4aA245130b96F6e38Baa 'implementation()(address)' --rpc-url $ETH_RPC_URL
-```
-
-Then spot-check a live vault's `totalAssets`, `circulatingSupply` and `seedMinted` against
-what they read before the upgrade.
-
----
-
-## Procedure B — upgrade the factory (UUPS)
-
-Identical flow, with two differences: the **target is the proxy**, not an implementation,
-and the function is `upgradeToAndCall`. OpenZeppelin v5 removed plain `upgradeTo` from UUPS
-— calling it will fail.
+**2. Build the calldata.** OpenZeppelin v5 removed plain `upgradeTo` from UUPS; calling it
+fails. Pass `0x` for `data` unless a `reinitializer` must run atomically with the upgrade.
 
 ```bash
 cast calldata 'upgradeToAndCall(address,bytes)' <NEW_IMPL> 0x
 ```
 
-Pass `0x` for `data` unless you need a `reinitializer` call in the same transaction. Then
-schedule/execute exactly as above, with target `0x1A5393af478B28c8AA3E60eAD24Ac8269ae059bb`.
+**3. Execute it from the Safe.** Paste the target proxy and that calldata into the Safe
+Transaction Builder as a raw transaction and sign it 2-of-3. There is nothing to schedule and
+nothing to wait for: it lands when the second signature does.
+
+**4. Verify the implementation slot moved**, reading the ERC-1967 slot rather than trusting a
+getter:
+
+```bash
+cast storage <PROXY> 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc --rpc-url robinhood
+```
+
+**5. Publish the source.** `script/verify-mainnet-sourcify.sh` is idempotent and signs
+nothing; it submits standard-JSON input to Sourcify, which is the only route that works on
+this chain (Blockscout's verify API sits behind a Cloudflare challenge). An implementation
+nobody can read is an implementation nobody can review.
+
+### The `script/Upgrade*Mainnet.s.sol` scripts
+
+There is one per shipped upgrade — `UpgradeReserveStrictRedeemMainnet`,
+`UpgradeHookFeeDelayMainnet`, `UpgradeProtocolFeeCapMainnet`, and so on. Each one deploys the
+implementation, points the proxies at it, and then re-reads a struct of everything the upgrade
+must not disturb and reverts if any of it moved. That verification block is the reason to keep
+using them.
+
+**They assert that the broadcasting signer owns the proxy**, which since the custody migration
+is the Safe, so they can no longer broadcast a mainnet upgrade. Use them in simulation (no
+`--broadcast`) against a fork to rehearse and to read out the exact calldata, then execute
+that calldata from the Safe. `script/RotateGuardianMainnet.s.sol` is the shape a *new*
+governance script should take: it validates hard and prints a transaction for the multisig to
+sign, and broadcasts nothing.
+
+## Procedure B — upgrade a beacon
+
+Same two halves, one step and no acceptance: deploy the implementation with any key, then have
+the Safe call `upgradeTo(address)` on the beacon. Read `implementation()` back afterwards.
+
+Rehearse this one. A beacon upgrade is live on every clone the moment it lands, and there is
+no per-clone rollback short of a second upgrade.
+
+**Do not upgrade these two beacons:** `0xF360132A1156f9E7843001F83F78768a29A772Ad` and
+`0x422E356fb62852D4D24D457991BBc1D777ab2Db4`. They are live `UpgradeableBeacon`s on 4663 with
+their own implementations, and `AssetMarketFactory.beacons()` references neither: they are
+orphans from an earlier generation. An `upgradeTo` aimed at either succeeds, emits `Upgraded`,
+costs gas and moves zero live markets, which is worse than a revert because it reads as a
+completed upgrade. See the note in `deployments/asset-markets-mainnet-v6.json`.
+
+## Procedure C — replace a yield-source adapter
+
+Adapters behind a reserve are swapped, not upgraded in place, when the target protocol
+changes. `setYieldSource` is `onlyOwner`, so it is a Safe transaction.
+
+```bash
+cast calldata 'setYieldSource(address)' <NEW_ADAPTER>
+```
+
+It recalls the **entire** deployed balance from the old adapter first, then swaps the pointer,
+and deliberately leaves the capital idle rather than auto-committing it to an adapter that has
+never been exercised. Someone calls `deployIdle()` afterwards, which is permissionless.
+
+The strict path reverts `MigrationWouldStrand(deployed, recalled)` if the outgoing adapter
+returns less than it booked beyond `MAX_MIGRATION_DUST` (2 wei). That revert is the feature:
+migrating anyway requires the explicit `setYieldSource(address,bool)` overload with
+`acceptStranding = true`, which charges the difference to `lossCarryforward` and emits
+`MigrationStranded`, so a write-off is a decision on the record rather than a silent
+disappearance.
+
+One adapter per consumer remains the rule. `SUSDaiYieldSource` and `MorphoBlueYieldSource`
+attribute shares per calling consumer, so sharing an instance is *safe*, but two consumers
+sharing one instance still share one position's liquidity, and a recall for one can be short
+because of the other.
 
 ---
 
-## Procedure C — replace a yield-source adapter (no timelock involved)
+## Delayed parameters
 
-Adapters are plain contracts: no proxy, no beacon, no upgrade path. Changing one means deploying
-a new instance and moving each consumer across. This is **not** governed by the timelock for
-vaults — `BrandedVault.setYieldSource` is gated on `brand`, the vault's treasury.
+Two fee knobs are announce-then-commit. Both are on the *increase* only; a decrease applies
+in the same transaction and cancels any pending increase.
 
-### Why this is pending on mainnet
-
-Both deployed `MorphoBlueYieldSource` instances predate the per-consumer share accounting added on
-2026-09-08 and carry the version whose `withdraw(asset, amount, to)` has **no access control and
-an arbitrary `to`** — anyone can send the whole Morpho position to themselves. Verified by calling
-`sharesOf(address)` on each: both revert, so the mapping is not in the deployed bytecode.
-
-| Adapter | Used by | Morpho position today |
+| | `ProtocolFeeHook` | `SharedReservePool` |
 |---|---|---|
-| `0x79a9ca5Fa46a0C4779E6332e7D49d2c241c50281` | flagship vault `0x54f8…0454` | **0** |
-| `0x2cEb049DC891Ca7546ec93467eD9A3DdC31e21ba` | superseded vault `0x048B…1E92` | **0** |
+| Announce | `setPoolFeePips(id, pips)` | `setRedemptionFee(bps)` |
+| Commit | `commitPoolFeePips(id)`, permissionless | `commitRedemptionFee()`, permissionless |
+| Cancel | `cancelPendingPoolFeePips(id)` | `cancelPendingRedemptionFee()` |
+| Delay | `FEE_INCREASE_DELAY` = 1 hour | `FEE_INCREASE_DELAY` = 1 hour |
+| Ceiling | `MAX_FEE_PIPS` = 10000 (1%, denominator 1e6) | `MAX_REDEMPTION_FEE_BPS` = 100 (1%) |
+| Live today | 5000 pips (0.50%) on all six live pools | 20 bps on sUSDai, 0 on USDG/Morpho |
 
-**Nothing is exposed while those are zero.** The flagship vault's `totalAssets()` is 0 — its 1B
-shares are unbacked seed inventory resting in the sell wall. The position becomes drainable the
-first time `deployIdle()` runs after a sweep moves real USDG into the vault. **Migrate before that
-happens.**
+The ceiling is re-checked at commit as well as at announcement, because a constant that has
+already been lowered once can be lowered again and a value authorised under the old ceiling
+must not be able to land under the new one. `MAX_FEE_PIPS` came down from 50000 to 10000
+exactly that way.
 
-### Steps
+Neither delay survives an upgrade. The Safe can ship an implementation without them in one
+transaction. What the hour genuinely buys is that an aggregator's quote cannot be repriced
+under it inside the hour by a parameter change, which is a reliability property and worth
+having. Do not sell it as a security property.
 
-**1. Deploy a fresh adapter** from current source, one per consumer:
-
-```bash
-forge create src/yield/MorphoBlueYieldSource.sol:MorphoBlueYieldSource --rpc-url $ETH_RPC_URL --private-key $PRIVATE_KEY --constructor-args 0x9D53d5E3bd5E8d4Cbfa6DB1ca238AEA02E651010 0xc845da65a020ddca5f132efa8fea79676d8edfdea504226a4c01e7a9e34cddd6
-```
-
-Confirm it is the fixed build — this must return `0`, not revert:
-
-```bash
-cast call <NEW_ADAPTER> 'sharesOf(address)(uint256)' 0x0000000000000000000000000000000000000001 --rpc-url $ETH_RPC_URL
-```
-
-**2. Point the vault at it.** Brand (treasury) key only:
-
-```bash
-cast send <VAULT> 'setYieldSource(address)' <NEW_ADAPTER> --rpc-url $ETH_RPC_URL --private-key $BRAND_KEY
-```
-
-`setYieldSource` harvests fees, recalls the **entire** deployed balance from the old adapter, then
-swaps the pointer. Capital lands idle on purpose — it never auto-commits to a freshly-set adapter.
-
-**3. Redeploy the capital:**
-
-```bash
-cast send <VAULT> 'deployIdle()' --rpc-url $ETH_RPC_URL --private-key $ANY_FUNDED_KEY
-```
-
-**4. Verify** the old adapter is empty and the new one carries the position:
-
-```bash
-cast call <VAULT> 'deployedAssets()(uint256)' --rpc-url $ETH_RPC_URL
-cast call <OLD_ADAPTER> 'balanceOf(address)(uint256)' 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168 --rpc-url $ETH_RPC_URL
-```
-
-For `SharedReservePool` the same procedure applies with `pool.setYieldSource(...)`, except it is
-**owner-only**, so it goes through that pool's timelock as a scheduled operation.
+`test_fork_theSafeCanGovernEveryClassOfHandle` asserts that an increase from the Safe still
+only *schedules*, so the delay survived the handover rather than being bypassed by the new
+owner.
 
 ---
 
-## Procedure D — replace a VaultTreasury (also not upgradeable)
+## Fee recipients did not move with ownership
 
-Same situation as the adapters, same reason: the flagship treasury
-`0x9fe9edC896D7Bce0d072EdcE3fBbE83Afbc5166F` was deployed by the factory during the 2026-09-08
-redeploy, which is **before** `redeemAll`/`redeem` were gated to `onlyAdmin`. It is still open to
-anyone with an arbitrary `receiver`.
+`ProtocolFeeHook.feeRecipientOf` on every pool, and `LaunchFactory.protocolFeeRecipient`,
+still point at the retired deployer `0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9`, read back in
+`deployments/mainnet-state.json`. A recipient is not an ownership handle: it cannot upgrade,
+halt or reconfigure anything, and repointing it is a separate `onlyOwner` call.
 
-Confirm which build a treasury is, without spending gas — a gated one reverts `OnlyAdmin`, an
-ungated one falls through to the `shares == 0` early return and answers `0`:
-
-```bash
-cast call <TREASURY> 'redeemAll(address)(uint256)' 0x000000000000000000000000000000000000dEaD --from 0x00000000000000000000000000000000DeaDBeef --rpc-url $ETH_RPC_URL
-```
-
-**Nothing is at risk while the treasury holds no shares.** It only receives them from
-`vault.harvestFees()`, which mints against yield the vault has earned — currently zero. **The
-first harvest is the deadline.**
-
-**1. Deploy a treasury from current source**, pointed at the same vault and admin:
-
-```bash
-forge create src/VaultTreasury.sol:VaultTreasury --rpc-url $ETH_RPC_URL --private-key $PRIVATE_KEY --constructor-args <VAULT> <ADMIN>
-```
-
-**2. Point the vault at it**, as the *current* treasury's admin. `setVaultBrand` calls the
-brand-gated `vault.setBrand` on your behalf — the vault will not accept the change any other way:
-
-```bash
-cast send <OLD_TREASURY> 'setVaultBrand(address)' <NEW_TREASURY> --rpc-url $ETH_RPC_URL --private-key $ADMIN_KEY
-```
-
-**3. Verify**, and re-run the probe above against the new treasury — it must now revert:
-
-```bash
-cast call <VAULT> 'brand()(address)' --rpc-url $ETH_RPC_URL
-```
-
-If the old treasury already holds shares when you migrate, redeem or transfer them out **first**
-— `setVaultBrand` redirects future fee shares and moves nothing that has already accrued.
-
-### One adapter per consumer
-
-`sharesOf` makes sharing an instance *safe* — two consumers stay fully isolated — but a dedicated
-instance is still the rule: it keeps each position independently readable, and it is the only
-arrangement `AaveV3YieldSource` permits at all (`bindController` binds it to one consumer for
-life, and an unbound adapter is inert). Bind atomically at deploy time; a bound controller cannot
-be changed.
-
----
-
-## Cancelling a scheduled upgrade
-
-Proposers are also cancellers (OpenZeppelin grants both), and the deployer holds the role —
-verified on-chain.
-
-**At the current zero delay there is no window to cancel in**: an operation is executable in
-the block it was scheduled. This only becomes a real safety net once the delay is raised.
-
-```bash
-cast send 0x073fAE6c633e914e3BEf20e71b0352742C70508B 'cancel(bytes32)' <ID> --rpc-url $ETH_RPC_URL --private-key $PRIVATE_KEY
-```
+`deployments/safe-batches/03-repoint-fee-recipients.json` is the prepared batch that moves the
+ones worth moving. **Collect before repointing:** `ProtocolFeeHook.collect` pays whoever is
+named when it runs, not when the fee accrued.
 
 ---
 
 ## Limits you should know
 
-**The delay is zero, so there is currently no timelock protection at all.** A leaked
-deployer key drains every vault in one transaction: schedule and execute in the same block,
-with nobody able to cancel in between. This is acceptable only because nothing meaningful is
-deposited yet.
+**No timelock, and no plan for one in this deployment.** Two signatures upgrade any proxy in
+one transaction. There is no window in which a pending change can be read, argued with, or
+cancelled. An integrator cannot pin behaviour by watching for an announcement, because for
+upgrades there is no announcement to watch.
 
-**Raising it is cheap; lowering it is not.** `updateDelay` is callable only by the timelock
-itself, so a change must go through schedule/execute at the *current* minimum. From zero,
-raising executes immediately. From 48h, lowering costs a 48-hour wait — which is exactly why
-this deployment was rebuilt rather than waiting one out. Do the raise last, right before you
-announce:
+**A 2-of-3 compromise is total.** Two keys can repoint every reserve's yield source, move the
+implementation behind every brand token, and set every fee to its ceiling after an hour. The
+mitigation is key custody, not code.
 
-```bash
-cast calldata 'updateDelay(uint256)' 172800
-```
+**Ownership cannot be renounced** on `ProtocolGuard` or `SharedReservePool`; both override
+`renounceOwnership` to revert. On the guard, renouncing would leave every guarded contract in
+the protocol pointed at a registry whose resume path is permanently unreachable, with the
+guardian key alone deciding whether the protocol ever runs again. `transferOwnership` is the
+handover path, and it is two-step so a typo cannot land.
+(`test_guardOwnershipCannotBeRenounced`, `test_ownershipTransfersInTwoStepsAndCannotBeDropped`)
 
-Schedule that against the timelock's **own address**, then execute it.
+**A hook's address is its permission bits.** `ProtocolFeeHook` lives at an address mined so
+that its low 14 bits are `0x00CC`. Upgrading the implementation behind the proxy is fine, but
+a *different* hook address means different pools: every live market would have to be
+redeployed and reseeded. The hook is the one contract where the proxy is not a convenience.
 
-**There is no pause.** Nothing in `BrandedVault` or `BrandedVaultFactory` can be halted, so
-once the delay is raised it also becomes your floor on incident response. Adding `Pausable`
-is worth considering in a V2 — but the pause switch is itself a censorship lever, so it
-belongs behind the timelock or a multisig, not an EOA.
-
-**The timelock is one EOA.** `0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9` is proposer,
-executor and canceller. It is not the admin — the timelock is its own admin — so role
-changes cost whatever the delay is at the time. A leaked key means an attacker schedules a
-malicious implementation and drains every vault — instantly at the current zero delay, or
-after the delay once raised. The delay only helps if somebody is watching.
-
-**The contracts are unverified on the explorer.** Nobody can read what a pending upgrade
-actually does during its window, which removes most of the delay's value. Verify before the
-first real upgrade.
-
-### Migrating roles to a multisig
-
-Role changes go through the timelock itself, so they cost the current delay too. Grant
-first, renounce
-second, and confirm the new holder works before giving up the old one:
-
-```bash
-cast calldata 'grantRole(bytes32,address)' <PROPOSER_ROLE> <MULTISIG>
-```
-
-Schedule that against the timelock's own address, wait, execute, then repeat for
-`EXECUTOR_ROLE` and `CANCELLER_ROLE` before renouncing the EOA's roles.
+**The gen-4 `MarketRouter` `0xcCDe2EcDE7072Efe61822551152663F204CF73ce` is still owned by the
+retired key** and carries an unaccepted `pendingOwner` nomination to the Safe. It is a dead
+UUPS proxy that no live manifest references, which is why the original address sweep missed
+it. The nomination is inert because only the Safe can accept it. The residual risk, stated
+rather than buried: someone holding the retired key could ship an implementation to a router
+that still looks official. Accept the nomination if that ever matters.
 
 ---
 
 ## Pre-flight checklist
 
-- [ ] `forge test` green, including `test_storageLayout_slotsArePinned`
-- [ ] `forge inspect BrandedVault storageLayout` still totals 55 slots
-- [ ] Fork rehearsal completed, vault state intact afterwards
-- [ ] New implementation deployed and **verified on the explorer**
-- [ ] Operation id computed and recorded before scheduling
-- [ ] Salt is unique to this operation
-- [ ] Delay raised to a real value before any announcement (currently **0**)
-- [ ] Someone is watching the delay window and can `cancel`
-- [ ] Post-execute spot-check planned against real vault state
-- [ ] **Yield adapter migrated (Procedure C) before any USDG is deployed** — both live adapters
-      are the pre-fix, drainable build
-- [ ] **Flagship VaultTreasury migrated (Procedure D) before the first `harvestFees`** — the
-      deployed one still has permissionless `redeemAll`/`redeem`
+- [ ] `forge test --match-contract UpgradeInvariants` green, footprint unchanged or changed deliberately
+- [ ] `forge test --match-contract UpgradeAndPause` green
+- [ ] Fork rehearsal completed; proxy state read back identical afterwards
+- [ ] New implementation deployed, and its constructor locked its initializer
+- [ ] Exact target and calldata recorded before it goes to the Safe
+- [ ] Two signers available and the transaction reviewed by the second, not just signed
+- [ ] Implementation published to Sourcify (`script/verify-mainnet-sourcify.sh`)
+- [ ] Post-execute: ERC-1967 slot re-read, and for a reserve, `totalAssets() >= totalPooledSupply()`
+- [ ] `test/OwnershipMigrationMainnetFork.t.sol` updated if the upgrade added an owned handle
