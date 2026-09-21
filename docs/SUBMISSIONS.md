@@ -19,9 +19,10 @@ git log --oneline review/0x-kyberswap-2026-09-20..main -- src/
 | | |
 |---|---|
 | Tag | `review/0x-kyberswap-2026-09-20` |
-| This repository | `95766438ead489cbf375c4121f64540c9a6349d3` |
-| Monorepo counterpart | `StableLaunchpad` `c7b9f4071801be62777f3c84f758e46f2f3c892c`, same tag name |
-| Chain state verified at | block **68,460,340**, Robinhood Chain mainnet, chainId 4663 |
+| This repository | `9139ca1ac28fbc36049350b6e5e384c999a20fff` |
+| Monorepo counterpart | `StableLaunchpad` `39215860e4efc536f45bcf107daf342cfd1ae274`, same tag name |
+| Measured numbers in the package | block **68,293,146**, Robinhood Chain mainnet, chainId 4663 |
+| Parameters re-confirmed unchanged at | block **68,460,340** |
 | Submitted to | 0x, via the Custom Uniswap v4 Hook Request form; KyberSwap, via the `dex-lib` adapter |
 | Package | [`docs/0x/`](./0x/) and [`docs/KYBERSWAP_INTEGRATION.md`](./KYBERSWAP_INTEGRATION.md) |
 
@@ -80,7 +81,9 @@ If any of these move, tell both teams rather than waiting for them to find it:
 ### Deliberately excluded
 
 The Kyber adapter was submitted as `integrations/kyberswap-dex-lib/hooks/stables/` with exchange
-id `uniswap-v4-stables`. A rename to `stables-fast` and
-`uniswap-v4-stables-fast` was in progress when the submission went out and is **not** part of
-this tag. If that rename lands, KyberSwap must be told, because the directory and the exchange
-id are both things they were pointed at directly.
+id `uniswap-v4-stables`. A rename to `stables-fast` and `uniswap-v4-stables-fast`, part of the stables.fast rebrand, was
+staged but uncommitted when the submission went out. It is **not** part of this tag, and `main`
+has been restored to the submitted path so the repository matches what KyberSwap was pointed at
+while the review is open. The rebrand is preserved and should land as its own deliberate commit,
+at which point **KyberSwap must be told**: both the directory and the exchange id move, and they
+were pointed at both directly.
