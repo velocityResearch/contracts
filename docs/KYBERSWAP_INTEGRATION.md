@@ -97,11 +97,11 @@ about them.
 that thin, and the fallback if anything flatters them.** Buying market 13's asset with 1,000
 USDG moves the price **+108.31%** against the 1-unit reference price, where Kyber's quote
 implied roughly 29%. The same shape holds across all six live pools (§3.5 carries the table).
-So there is nothing mispriced to fix on our side, and the honest framing for a listing
-conversation is that the v4 pools are early and small — about $37.7k of brand-side value across
-all six — while the deep leg is the reserve, which is §3.4. The plugin in §3.3 is still worth
-doing, but for accuracy rather than for depth: it replaces a fitted fee with a free exact read
-that can change between blocks.
+So there is nothing mispriced to fix on our side. The framing for a listing conversation is that
+the v4 pools hold seed liquidity today, deliberately, because we are getting the integrations in
+place ahead of a hard launch rather than afterwards, while the deep leg is the reserve, which is
+§3.4. The plugin in §3.3 is still worth doing, but for accuracy rather than for depth: it
+replaces a fitted fee with a free exact read that can change between blocks.
 
 ---
 
@@ -610,22 +610,23 @@ output against real on-chain fills. Full test coverage, `goimports -local`, and
 
 Two of those we do not have, and they are the real blockers:
 
-- **Sample fills.** Six markets have liquidity, but not much: about $37.7k of brand-side value
-  across all six, and a 1,000-USDG buy moves market 13 by +108%. That is enough to produce real
-  fills to compare a simulator against, and small enough that the comparison has to be done at
-  sizes a reviewer will find unimpressive. Somebody has to produce them.
+- **Sample fills.** Six markets have liquidity, seeded rather than deep, and a 1,000-USDG buy
+  moves market 13 by +108%. That is enough to produce real fills to compare a simulator against,
+  at the sizes seed liquidity supports. Somebody has to produce them.
 
-  | id | Asset | spot (USDG) | impact at 100 | at 1,000 | at 10,000 | approx TVL |
-  |---|---|---|---|---|---|---|
-  | 13 | NVDA | 249.4821 | +10.73% | +108.31% | +1084.04% | ~$1,855 |
-  | 14 | SPCX | 170.8470 | +13.13% | +132.47% | +1325.86% | ~$1,516 |
-  | 15 | AI | 0.2865 | +10.93% | +110.31% | +1104.04% | ~$1,822 |
-  | 16 | SDOGE | 0.00004087 | +1.18% | +11.93% | +119.40% | ~$17,503 |
-  | 17 | ABR | 0.00000515 | +3.40% | +34.26% | +342.95% | ~$5,924 |
-  | 18 | CORGIGG | 0.0000120 | +2.22% | +22.44% | +224.61% | ~$9,116 |
+  | id | Asset | spot (USDG) | impact at 100 | at 1,000 | at 10,000 |
+  |---|---|---|---|---|---|
+  | 13 | NVDA | 249.4821 | +10.73% | +108.31% | +1084.04% |
+  | 14 | SPCX | 170.8470 | +13.13% | +132.47% | +1325.86% |
+  | 15 | AI | 0.2865 | +10.93% | +110.31% | +1104.04% |
+  | 16 | SDOGE | 0.00004087 | +1.18% | +11.93% | +119.40% |
+  | 17 | ABR | 0.00000515 | +3.40% | +34.26% | +342.95% |
+  | 18 | CORGIGG | 0.0000120 | +2.22% | +22.44% | +224.61% |
 
-  Measured through `MarketLens.quoteBuy` at block 68,293,146. Frame the reserve as the real
-  liquidity and the pools as early; do not oversell them.
+  Measured through `MarketLens.quoteBuy` at block 68,293,146. It is a snapshot of current seed
+  liquidity and will not describe the pools after launch, so re-measure with
+  `MarketLens.quoteBuy` at integration time. Frame the reserve as the deep leg and the pools as
+  seed liquidity being wired up ahead of the hard launch.
 - **Stability.** `deployments/asset-markets-mainnet-v6.json` documents gen-4, gen-5 and gen-6
   inside a fortnight. A listing pins addresses; the stack needs to stop moving first.
 

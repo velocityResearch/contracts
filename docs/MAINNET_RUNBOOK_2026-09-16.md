@@ -223,9 +223,10 @@ their verification blocks and to read out the calldata.
   with no window to read or cancel in. Carried in `docs/audit-history.md` as A3-CRITICAL-1;
   the custody migration narrowed it from one key to two, and did not close it.
 - **Protocol fee recipients still point at the retired deployer EOA.** Prepared batch above.
-- **The pools are thin.** Roughly $37.7k of total v4 liquidity across the six live markets, so
-  a 1,000 USDG buy moves most of them double digits. The deep leg is the reserve, not the
-  pools. Do not let a quote surface imply otherwise.
+- **The pools are thin.** They hold seed liquidity ahead of the hard launch, so a 1,000 USDG buy
+  moves most of them double digits. Read current depth with `MarketLens.quoteBuy` rather than
+  from a figure written down here. The deep leg is the reserve, not the pools. Do not let a
+  quote surface imply otherwise.
 - **Morpho utilisation.** `SharedReservePool._recallIfNeeded` pulls on demand and reverts at
   100% utilisation, and there is no idle-buffer policy.
 - **The public Robinhood RPC rate-limits a full fork suite** (429s). Add `--threads 1`, or use

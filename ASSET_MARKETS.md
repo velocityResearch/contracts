@@ -580,10 +580,11 @@ Three things it does not solve, and none should be papered over:
   rewards is the full-range one.
 
 The remaining bet is that paying for depth in cash is a better way to buy depth than paying for
-it through a price. The evidence is not in yet: the six live pools hold roughly $37.7k between
-them. If the bet is wrong, the alternatives are known and both are large — a gauge with a
-fungible full-range wrapper, or restoring a bid of some kind. Watch staked depth against total
-depth before creating many more markets.
+it through a price. The evidence is not in yet: the six live pools hold seed liquidity, put
+there to get the integrations working before the hard launch rather than after it. If the bet is
+wrong, the alternatives are known and both are large: a gauge with a fungible full-range
+wrapper, or restoring a bid of some kind. Watch staked depth against total depth before creating
+many more markets.
 
 A clean special case: when the operator is the sole LP, they are earning float yield on their own
 inventory and the whole question is a no-op. That is a genuinely good product on its own —
@@ -644,12 +645,12 @@ and it is the price of the deletion.
 - **Listing squatting on memecoins.** The bytecode test has no analogue outside the equity
   registry. Needs curation plus attestation from the token's deployer, and a UI that visibly
   separates `verified` from `unverified`.
-- **Thin pools, and the MEV that follows from them.** The six live pools hold roughly $37.7k
-  between them, so price impact is severe at sizes an aggregator would consider routine — 1,000
-  USDG moves the NVDA market more than 100%. The deep leg of this system is the reserve, not the
-  AMM: about $9.96M of mint headroom against ~$35.3k redeemable at par less 20 bps. Any surface
-  presenting the pools as the liquidity is overselling them. The buyback that used to be the
-  standing counterweight here, and the front-running hazard that came with it, went together.
+- **Thin pools, and the MEV that follows from them.** The six live pools hold seed liquidity, so
+  price impact is severe at sizes an aggregator would consider routine: 1,000 USDG moves the
+  NVDA market more than 100%. The deep leg of this system is the reserve, not the AMM: about
+  $9.96M of mint headroom against ~$35.3k redeemable at par less 20 bps. Any surface presenting
+  the pools as the deep leg is describing them wrongly. The buyback that used to be the standing
+  counterweight here, and the front-running hazard that came with it, went together.
 - **The oracle outlived its consumer.** `ProtocolFeeHook` still writes a V3-style observation
   ring on every swap, throttled to one entry per `PoolObservations.MIN_INTERVAL` (15s), but
   nothing inside the protocol prices anything off it any more — the TWAP existed for the

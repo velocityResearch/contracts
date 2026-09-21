@@ -156,10 +156,16 @@ than caching. The mechanics of the two legs and the correct `redeem` overload ar
 [Quoting and settlement](./QUOTING_AND_SETTLEMENT.md); the governance question of who can move the
 fee and the cap is in [Security and governance](./SECURITY_AND_GOVERNANCE.md).
 
-## 5. Depth, stated honestly
+## 5. Depth today, measured
 
-These pools are small. The numbers below are measured `MarketLens.quoteBuy(id, usdgIn)` results at
-block 68,293,146, not estimates, and they are not flattering.
+Liquidity is deliberately small right now. These are seed pools. We are getting the integrations
+in place ahead of a hard launch rather than afterwards, so that routing works from day one instead
+of arriving months later.
+
+Everything in this section is a snapshot of current seed liquidity at block 68,293,146, measured
+with `MarketLens.quoteBuy(id, usdgIn)` rather than estimated. It will not describe the pools after
+launch, so re-measure with `MarketLens.quoteBuy` at integration time and size against what you
+read then.
 
 Price impact is stated against the 1-USDG reference quote on the same pool at the same block. The
 reference quote pays the same LP fee and the same hook fee, so these columns are approximately pure
@@ -174,23 +180,6 @@ slippage. Total cost to a taker is slippage **plus** the roughly 1% all-in fee (
 | 16 | SDOGE | 0.00004087 | +1.18% | +11.93% | +119.40% |
 | 17 | ABR | 0.00000515 | +3.40% | +34.26% | +342.95% |
 | 18 | CORGIGG | 0.0000120 | +2.22% | +22.44% | +224.61% |
-
-Approximate TVL, from a constant-product fit that reproduces the measured quotes to within 0.5%:
-
-| id | Asset | asset side | brand side | TVL |
-|---|---|---|---|---|
-| 13 | NVDA | 3.72 | 927.61 | ~$1,855 |
-| 14 | SPCX | 4.44 | 757.78 | ~$1,516 |
-| 15 | AI | 3,179.69 | 910.98 | ~$1,822 |
-| 16 | SDOGE | 214,117,668 | 8,751.70 | ~$17,503 |
-| 17 | ABR | 575,478,769 | 2,961.92 | ~$5,924 |
-| 18 | CORGIGG | 379,836,157 | 4,558.20 | ~$9,116 |
-| | | | **TOTAL** | **~$37,736** |
-
-Total pool TVL across all six markets is about **$37.7k**. Market 13 is under two thousand dollars
-deep. A thousand-dollar buy on market 14 costs 132% in slippage. There is no reading of these
-numbers under which the v4 pools are a meaningful venue at institutional size today, and we are not
-going to pretend otherwise.
 
 **The deep leg is the reserve, not the pools.** The sUSDai reserve will absorb about 9.96M USDG of
 mint and pay out about 35,276 USDG of redemption, both at 1:1 with no price impact. That is two to
@@ -229,8 +218,9 @@ Applying that to the measured column, and rounding **down** to stay conservative
 | | | | | **184 USDG total** | |
 
 Worked example for id 16: `100 * 1.0 / 1.18 = 84.7`, rounded down to 84 USDG. Cross-check against
-the fitted brand reserve, `0.01 * 8,751.70 = 87.5 USDG`; the measured inversion is the more
-conservative of the two, which is why we use it.
+the constant-product fit of the same pool, whose brand side is 8,751.70 units, giving
+`0.01 * 8,751.70 = 87.5 USDG`; the measured inversion is the more conservative of the two, which
+is why we use it.
 
 **Recommendation.** Cap routable size per pool at the 1% column, which is 184 USDG across all six
 markets combined. Below that the venue is priced correctly and settles cleanly. Above roughly the 2%
@@ -378,7 +368,7 @@ announcement, no delay and no approval transaction to index ahead of it.
 `asset`, `brandToken`, `poolId` and `fee`, and is the only signal that fires before the pool has its
 first trade. Pair it with `MarketReserve` from the same transaction to learn which reserve backs the
 new brand, then run the new id through [section 6](#6-discovery) and
-[section 5](#5-depth-stated-honestly) before routing anything through it: a freshly graduated pool
+[section 5](#5-depth-today-measured) before routing anything through it: a freshly graduated pool
 is seeded with whatever the curve swept, which can be smaller than any pool listed here.
 
 `AssetMarketFactory` enforces one market per (reserve, asset) pair, so a new `MarketCreated` for an

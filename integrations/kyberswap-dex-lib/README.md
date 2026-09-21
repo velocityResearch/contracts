@@ -201,25 +201,30 @@ priced 1,000 brand units at $898 and quoted a 29% loss on a $1,000 brand→asset
 not clear whether the pools were genuinely that thin or the fitted model was wrong about them.
 `MarketLens.quoteBuy`, read at block 68,293,146, settles it: **the pools really are that thin,
 and if anything the fallback flatters them.** Buying market 13's asset with 1,000 USDG moves the
-price +108.31% against the 1-unit reference, against Kyber's implied ~29%. The six pools hold
-about $37.7k of brand-side value between them:
+price +108.31% against the 1-unit reference, against Kyber's implied ~29%. Measured price impact
+across the six pools, a snapshot of current seed liquidity at that block:
 
-| id | Asset | spot (USDG) | impact at 100 | at 1,000 | at 10,000 | approx TVL |
-|---|---|---|---|---|---|---|
-| 13 | NVDA | 249.4821 | +10.73% | +108.31% | +1084.04% | ~$1,855 |
-| 14 | SPCX | 170.8470 | +13.13% | +132.47% | +1325.86% | ~$1,516 |
-| 15 | AI | 0.2865 | +10.93% | +110.31% | +1104.04% | ~$1,822 |
-| 16 | SDOGE | 0.00004087 | +1.18% | +11.93% | +119.40% | ~$17,503 |
-| 17 | ABR | 0.00000515 | +3.40% | +34.26% | +342.95% | ~$5,924 |
-| 18 | CORGIGG | 0.0000120 | +2.22% | +22.44% | +224.61% | ~$9,116 |
+| id | Asset | spot (USDG) | impact at 100 | at 1,000 | at 10,000 |
+|---|---|---|---|---|---|
+| 13 | NVDA | 249.4821 | +10.73% | +108.31% | +1084.04% |
+| 14 | SPCX | 170.8470 | +13.13% | +132.47% | +1325.86% |
+| 15 | AI | 0.2865 | +10.93% | +110.31% | +1104.04% |
+| 16 | SDOGE | 0.00004087 | +1.18% | +11.93% | +119.40% |
+| 17 | ABR | 0.00000515 | +3.40% | +34.26% | +342.95% |
+| 18 | CORGIGG | 0.0000120 | +2.22% | +22.44% | +224.61% |
+
+These numbers will not describe the pools after launch. Re-measure with `MarketLens.quoteBuy`
+at integration time.
 
 Two things follow, and both belong in the PR rather than being discovered by a reviewer:
 
-1. **Do not oversell the v4 pools.** They are early and small. The deep leg of this system is
-   the reserve, not the pool: `SharedReservePool` at
+1. **Describe the v4 pools as what they are.** Liquidity is deliberately small right now; these
+   are seed pools, and the integrations are going in ahead of a hard launch rather than
+   afterwards, so that routing works from day one instead of arriving months later. The deep leg
+   of this system is the reserve, not the pool: `SharedReservePool` at
    `0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2` backs all six live markets and holds ~9.96M USDG
    of mint headroom with ~35,276 USDG redeemable at par less a 20 bps fee. That is the liquidity
-   worth routing through, and it needs the separate source described in
+   worth routing through today, and it needs the separate source described in
    `docs/KYBERSWAP_INTEGRATION.md` §3.4.
 2. **The plugin's value is not depth, it is accuracy.** A fitted fee is a guess about a number
    the contract will hand over for free and that can move between blocks. Registering the plugin

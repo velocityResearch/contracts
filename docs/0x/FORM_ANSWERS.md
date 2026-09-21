@@ -13,8 +13,9 @@ Canonical onboarding page (0x's own help article calls it canonical):
 | RFQ Interest Form | <https://zeroex.notion.site/238ac66a853780acb4bcfd882a97a541> | No, we are not a market maker |
 
 0x states plainly that submitting does not guarantee integration and that they prioritize on
-liquidity quality, technical readiness and ecosystem fit. Our liquidity is small today. Lead
-with technical readiness, which is where we are genuinely strong, and be upfront about size.
+liquidity quality, technical readiness and ecosystem fit. Lead with technical readiness, which
+is where we are genuinely strong, and with the launch timeline: the pools are seed liquidity
+and the integrations are going in before the hard launch, not after it.
 
 ---
 
@@ -49,9 +50,11 @@ PoolManager: 0x8366a39CC670B4001A1121B8F6A443A643e40951
 6 live pools, all fee tier 5000, tickSpacing 50, all on this hook.
 Full PoolKeys, poolIds and token decimals: see MARKETS.md in the package below.
 
-Liquidity, stated upfront rather than discovered: the v4 pools are early and thin,
-about $37.7k across all six. The deep leg is our 1:1 reserve, with roughly 9.96M USDG
-of mint headroom and about 35,276 USDG currently redeemable at par less 20 bps.
+Liquidity, stated upfront rather than discovered: the v4 pools are seed pools and
+deliberately small right now. We are getting the integrations in place ahead of a hard
+launch rather than afterwards, so that routing works from day one instead of arriving
+months later. The deep leg is our 1:1 reserve, with roughly 9.96M USDG of mint headroom
+and about 35,276 USDG currently redeemable at par less 20 bps.
 Measured price impact per pool, and a derived max routable size, are in MARKETS.md.
 If you have a depth threshold before a source is worth indexing, we would rather hear
 it now than guess.
@@ -230,7 +233,7 @@ the repository and name the files.
 | [HOOK_SPECIFICATION.md](./HOOK_SPECIFICATION.md) | Exactly what the hook does, with source citations |
 | [QUOTING_AND_SETTLEMENT.md](./QUOTING_AND_SETTLEMENT.md) | How to produce a number and land a trade |
 | [SECURITY_AND_GOVERNANCE.md](./SECURITY_AND_GOVERNANCE.md) | Who can change what, how fast |
-| [MARKETS.md](./MARKETS.md) | The pool and token inventory, and honest depth |
+| [MARKETS.md](./MARKETS.md) | The pool and token inventory, and measured depth |
 | [SETTLER_COMPATIBILITY.md](./SETTLER_COMPATIBILITY.md) | Why their existing v4 action already works |
 
 The broader venue-neutral integration document is

@@ -33,9 +33,11 @@ The broader venue-neutral document is [../AGGREGATOR_INTEGRATION.md](../AGGREGAT
    68,293,146: an unmodified Uniswap `V4Quoter` and our independently written `MarketLens` agree
    **to the wei on all six pools**. Do not subtract the fee again.
 
-4. **The pools are small and we are not going to pretend otherwise.** About $37.7k across six
-   pools. The deep leg is the reserve: roughly 9.96M USDG of mint headroom and about 35,276 USDG
-   currently redeemable, 1:1 less 20 bps.
+4. **Liquidity is deliberately small right now.** These are seed pools. We are getting the
+   integrations in place ahead of a hard launch rather than afterwards, so that routing works
+   from day one instead of arriving months later. The deep leg is the reserve: roughly 9.96M
+   USDG of mint headroom and about 35,276 USDG currently redeemable, 1:1 less 20 bps. Measured
+   price impact per pool, and the size that fills today, are in [MARKETS.md](./MARKETS.md).
 
 5. **It is upgradeable, with no timelock.** A 2-of-3 Safe can upgrade the hook in one
    transaction. Fee increases are delayed an hour and decreases are immediate, which makes a
@@ -77,8 +79,9 @@ DEX Integration Request unsolicited; ask in the hook submission whether they wan
 reserve leg.
 
 0x states that submission does not guarantee integration and that they prioritize on liquidity
-quality, technical readiness and ecosystem fit. Our liquidity is thin and our technical
-readiness is strong. Lead with the second and be honest about the first.
+quality, technical readiness and ecosystem fit. Lead with technical readiness and the launch
+timeline: the code is done and the pools are seed liquidity being wired up before the hard
+launch, not after it. Give the measured depth as measured depth.
 
 ## Cover message
 
@@ -114,11 +117,13 @@ Three things that should make this a short review:
    to other DEX protocols during a swap. The hook writes its own TWAP buffer; it never reads a
    price feed.
 
-Two things we want to be upfront about rather than have you discover:
+Two things we would rather state plainly than have you discover:
 
-- The pools are small, about $37.7k in total. The deep leg is our 1:1 reserve, with roughly
-  9.96M USDG of mint headroom. If you would rather wait for depth, that is a fair call and we
-  would like to know what threshold you look for.
+- Liquidity is deliberately small right now. These are seed pools. We are getting the
+  integrations in place ahead of a hard launch rather than afterwards, so that routing works
+  from day one instead of arriving months later. The deep leg is our 1:1 reserve, with roughly
+  9.96M USDG of mint headroom. Measured price impact per pool, and the size that fills today,
+  are in MARKETS.md.
 - The hook is a UUPS proxy behind a 2-of-3 Safe with no upgrade timelock. Fee increases are
   delayed one hour and decreases are immediate, so a quote is good for an hour, but we are not
   going to describe that as a security guarantee when an upgrade could remove it.

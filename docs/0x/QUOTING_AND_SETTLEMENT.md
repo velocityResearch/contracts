@@ -97,7 +97,7 @@ about cost and about split routing, not about reachability.
 - Split routing needs a model it can differentiate and evaluate at many sizes per block. That
   is an argument for closed form regardless of how cheap a quote is: an on-chain sample gives
   you one point on the curve, and the router wants the curve.
-- These pools are small (roughly $37.7k of pool TVL in total; see [Markets](./MARKETS.md)).
+- The pools hold seed liquidity today (see [Markets](./MARKETS.md) for measured price impact).
   At the sizes 0x routes, the marginal value of a pool-accurate on-chain quote per candidate
   size is low, even now that the sample is batchable and costs one `STATICCALL` rather than a
   round trip of its own.
@@ -808,6 +808,7 @@ At the 1 USDG reference, `quoteBuy(13, 1000000)` returns `4008303711377360`, giv
 1 / 0.004008303711377360 = 249.4821 USDG per NVDA, which is the spot figure quoted above. A
 linear extrapolation of that to 100 USDG would be 0.400830371137736 NVDA. The actual fill is
 0.361978989930279627, so the effective price is 1.10734x the reference, that is **+10.73% price
-impact on 100 USDG**. This pool holds roughly 917 AIUSD and 3.72 NVDA. That is what a
-$1,855 pool does at $100 of size, and it is why the reserve leg, not the pool leg, is the deep
-side of this venue. Size accordingly; see [Markets](./MARKETS.md) for the full depth table.
+impact on 100 USDG**. This pool holds roughly 917 AIUSD and 3.72 NVDA. That is what a seed pool
+does at 100 USDG of size, and it is why the reserve leg, not the pool leg, is the deep side of
+this venue today. Size accordingly, and see [Markets](./MARKETS.md) for the measured impact
+table and the max routable size derived from it.

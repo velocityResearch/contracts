@@ -40,8 +40,9 @@ returned delta already sees the fee. There is nothing for an integrator to add o
 | Flags upgradeable | no - they are the address | `lib/v4-core/src/libraries/Hooks.sol:337-339` |
 | Owner | Safe `0x28569c1716EF81f307d666A1EC08bDAE92AC0373`, 2-of-3 | `owner()` on chain; facts sheet |
 
-The pools are small. Total v4 TVL across the six live markets is approximately $37.7k. See
-[Markets](./MARKETS.md) for measured depth before sizing anything.
+Liquidity is deliberately small right now. These are seed pools, and the integrations are going
+in ahead of a hard launch rather than afterwards. See [Markets](./MARKETS.md) for measured price
+impact before sizing anything, and re-measure at integration time.
 
 ## 2. Permission flags
 

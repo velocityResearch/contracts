@@ -513,11 +513,12 @@ on its own; it is listed here so nothing is a surprise.
    timelock as an open item. Your `minBuyAmount` is the only bound that does not depend on our
    good behavior.
 
-3. **The pools are small.** Approximately $37.7k of total TVL across all six live v4 pools,
-   with measured price impact reaching +108% on a 1,000 USDG buy of the largest equity market.
-   See [Markets](./MARKETS.md) for the per-pool measurements. The deep leg is the reserve:
-   roughly 9.96M USDG of mint headroom and roughly 35,276 USDG redeemable at 1:1 less 20 bps.
-   Route size against the reserve, not against the pools.
+3. **Liquidity is deliberately small right now.** These are seed pools, wired up ahead of a hard
+   launch rather than after it, and measured price impact reaches +108% on a 1,000 USDG buy of
+   the largest equity market today. See [Markets](./MARKETS.md) for the per-pool measurements,
+   which are a snapshot of current seed liquidity rather than a description of the pools after
+   launch. The deep leg is the reserve: roughly 9.96M USDG of mint headroom and roughly 35,276
+   USDG redeemable at 1:1 less 20 bps. Route size against the reserve, not against the pools.
 
 4. **Six un-graduated launch curves have a frozen `protocolFeeRecipient` with no setter.**
    `LaunchCurve` snapshots the factory's fee policy in `initialize`
