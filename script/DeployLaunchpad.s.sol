@@ -9,6 +9,7 @@ import {IERC20Metadata} from "@openzeppelin/token/ERC20/extensions/IERC20Metadat
 import {SharedReservePool} from "../src/pool/SharedReservePool.sol";
 import {AssetMarketFactory} from "../src/markets/AssetMarketFactory.sol";
 import {LaunchFactory} from "../src/launchpad/LaunchFactory.sol";
+import {LaunchGuardDeployer} from "../src/launchpad/libraries/LaunchGuardDeployer.sol";
 import {IPermit2, IPositionManagerV4} from "../src/interfaces/IPositionManagerV4.sol";
 import {MainnetAddresses} from "./MainnetAddresses.sol";
 import {ProtocolStack} from "../src/upgrade/ProtocolStack.sol";
@@ -57,17 +58,14 @@ library LaunchpadDefaults {
     uint256 internal constant SNIPE_TAX_START_BPS = 9_900;
     uint256 internal constant SNIPE_TAX_SECONDS = 15;
 
-    /// @notice The creator's share of the LP FEES a graduated launch's locked position earns,
-    ///         and of the FLOAT YIELD it earns. 40% of each, with the LP fund taking 30% and
-    ///         the protocol keeping the 30% remainder.
+    /// @notice The creator's share of the LP FEES a graduated launch's locked position earns.
+    ///         40% of that leg, with the LP fund taking 30% and the protocol keeping the 30%
+    ///         remainder.
     ///
-    ///         The two are separate knobs despite carrying the same number today, because
-    ///         they are different promises: the fee share is snapshotted into each launch and
-    ///         is a term the creator is sold, while the yield share is read live because the
-    ///         yield is what the reserve's collateral earns rather than what the launch
-    ///         earns. Setting them equal is a policy choice, not a simplification.
+    ///         Snapshotted into each launch rather than read live, because it is a term the
+    ///         creator is sold. There is no float-yield counterpart: a locked position
+    ///         renounces its reward stream at lock time, so that leg has nothing to split.
     uint16 internal constant GRADUATED_CREATOR_SHARE_BPS = 4_000;
-    uint16 internal constant GRADUATED_CREATOR_YIELD_SHARE_BPS = 4_000;
 
     // The quote-side economics, in the brand's own units. Sized for a 6-decimal brand: a
     // 3,236 phantom reserve against an 8,090 threshold puts 71.4% of supply into the
@@ -99,7 +97,6 @@ library LaunchpadDefaults {
         factory.setMaxCreatorTaxBps(MAX_CREATOR_TAX_BPS);
         factory.setSnipeTax(SNIPE_TAX_START_BPS, SNIPE_TAX_SECONDS);
         factory.setGraduatedCreatorShareBps(GRADUATED_CREATOR_SHARE_BPS);
-        factory.setGraduatedCreatorYieldShareBps(GRADUATED_CREATOR_YIELD_SHARE_BPS);
         factory.setGraduatedLpFundShareBps(LP_FUND_SHARE_BPS);
 
         launchConfigId = factory.addLaunchConfig(
@@ -109,34 +106,34 @@ library LaunchpadDefaults {
         );
     }
 
-    /// @notice Writes a quote brand's economics and then opens it for launches.
-    /// @dev    Two calls rather than one `approved: true` write: `setPairTokenEconomics` is
-    ///         where every validation lives (brand registered in the reserve, reserve known to
-    ///         the market factory, decimals matching the token's own), and `setPairTokenApproved`
-    ///         is the switch. Written that way, the figures exist and are readable before
-    ///         anything may launch against them, and closing the brand later does not require
-    ///         re-supplying them.
-    function approveQuoteBrand(
+    /// @notice Writes a reserve's launch economics and opens it, in one call.
+    /// @dev    The reserve is the unit of approval, not the brand: every brand of a reserve is
+    ///         a 1:1 wrapper of the same asset minted at the same scale, so figures sized for
+    ///         one are sized for all and a dollar issued tomorrow is launchable with no owner
+    ///         action. One call rather than two, because `setReserveEconomics` is both where
+    ///         every validation lives (reserve known to the market factory, its `assetDecimals`
+    ///         matching the figure supplied, the curve quotable) and the switch itself, so the
+    ///         open is written together with the figures it was checked against. What stays per
+    ///         brand -- the market factory having registered it, and its issuer having opted
+    ///         into sharing float yield -- is checked live at launch instead.
+    function approveQuoteReserve(
         LaunchFactory factory,
-        address brand,
         address reserve,
         uint256 phantomQuote,
         uint256 graduationThreshold,
         uint256 launchFee,
         uint8 decimals
     ) internal {
-        factory.setPairTokenEconomics(
-            brand,
-            LaunchFactory.PairTokenEconomics({
-                reserve: reserve,
+        factory.setReserveEconomics(
+            reserve,
+            LaunchFactory.ReserveEconomics({
                 phantomQuote: phantomQuote,
                 graduationThreshold: graduationThreshold,
                 launchFee: launchFee,
                 decimals: decimals,
-                approved: false
+                approved: true
             })
         );
-        factory.setPairTokenApproved(brand, true);
     }
 }
 
@@ -165,6 +162,17 @@ library LaunchpadDefaults {
 ///         is still deployed and configured and the exact `setLaunchpad` command the owner has
 ///         to send is printed; until that call lands, phase two of every graduation reverts
 ///         `OnlyLaunchpad` and the launch stays in `Swept`, retryable.
+///
+///         **`LaunchGuardDeployer` has to be linked, and this run checks before it spends.**
+///         That external library holds `LaunchGraduationGuard`'s creation code, without which
+///         `LaunchFactory` exceeds EIP-170. A Solidity library cannot be `new`ed and linking
+///         happens at compile time, so forge deploys and links it as part of this broadcast;
+///         the script asserts and PRINTS its address for the deployment manifest rather than
+///         pretending to deploy it. Deploy with
+///         `--libraries src/launchpad/libraries/LaunchGuardDeployer.sol:LaunchGuardDeployer:<addr>`
+///         to pin an existing one. The assertion runs BEFORE `startBroadcast`, because an
+///         unlinked build simulates far enough to look like a working deployment and only
+///         fails when `initialize` delegatecalls into empty code.
 ///
 ///         Usage:
 ///         ASSET_MARKET_FACTORY=0x... SHARED_RESERVE_POOL=0x... PROTOCOL_GUARD=0x... forge script script/DeployLaunchpad.s.sol --rpc-url robinhood --broadcast --slow
@@ -221,6 +229,13 @@ contract DeployLaunchpad is Script {
     function run() external returns (ProtocolStack.Launchpad memory lp) {
         Env memory e = _readEnv();
         _checkEnv(e);
+        // Before anything is spent. `LaunchFactory`'s bytecode delegatecalls this library from
+        // `initialize`, so an unlinked build deploys a proxy whose initialiser reverts — after
+        // the implementation and the escrow have already been paid for.
+        require(
+            address(LaunchGuardDeployer).code.length > 0,
+            "LaunchGuardDeployer library is not linked"
+        );
 
         console.log("=== Deploying the launchpad ===");
         console.log("Deployer:", e.deployer);
@@ -257,9 +272,8 @@ contract DeployLaunchpad is Script {
         console.log("Launch config id:", launchConfigId);
 
         if (e.quoteBrand != address(0)) {
-            LaunchpadDefaults.approveQuoteBrand(
+            LaunchpadDefaults.approveQuoteReserve(
                 lp.factory,
-                e.quoteBrand,
                 address(e.reservePool),
                 e.phantomQuote,
                 e.graduationThreshold,
@@ -282,6 +296,7 @@ contract DeployLaunchpad is Script {
         console.log("");
         console.log("=== Deployment complete ===");
         console.log("RECORD THESE IN THE DEPLOYMENT MANIFEST, UNDER `launchpad`:");
+        console.log("  guardDeployer (library, linked):", address(LaunchGuardDeployer));
         console.log("  feeEscrow:", address(lp.feeEscrow));
         console.log("  factoryImplementation:", lp.factoryImplementation);
         console.log("  factory:", address(lp.factory));
@@ -293,7 +308,12 @@ contract DeployLaunchpad is Script {
         console.log("  launchConfigId:", launchConfigId);
         console.log("  quoteBrand:", e.quoteBrand);
         console.log("");
-        console.log("LaunchFactory runtime size (bytes):", address(lp.factory).code.length);
+        console.log(
+            "LaunchFactory implementation runtime size (bytes):",
+            lp.factoryImplementation.code.length
+        );
+        console.log("    EIP-170 limit is 24576. LaunchGraduationGuard's creation code lives");
+        console.log("    in LaunchGuardDeployer, which is what keeps this number under it.");
         console.log("Curve fee (bps):", LaunchpadDefaults.CURVE_FEE_BPS);
         console.log(
             "    of which the protocol keeps (bps):", LaunchpadDefaults.PROTOCOL_FEE_SHARE_BPS
@@ -303,8 +323,6 @@ contract DeployLaunchpad is Script {
         console.log("    window (s):", LaunchpadDefaults.SNIPE_TAX_SECONDS);
         console.log("Creator share of locked-position LP fees (bps):");
         console.log("   ", LaunchpadDefaults.GRADUATED_CREATOR_SHARE_BPS);
-        console.log("Creator share of locked-position float yield (bps):");
-        console.log("   ", LaunchpadDefaults.GRADUATED_CREATOR_YIELD_SHARE_BPS);
         console.log("Launch supply (whole tokens x 1e18):", LaunchpadDefaults.LAUNCH_SUPPLY);
         console.log("Graduated pool LP tier:", LaunchpadDefaults.POOL_FEE);
         console.log("");
@@ -321,13 +339,11 @@ contract DeployLaunchpad is Script {
         }
 
         if (e.quoteBrand == address(0)) {
-            console.log("No LAUNCH_QUOTE_BRAND was supplied, so no brand is approved and");
-            console.log("launching is still DISABLED. Register the brand on the reserve, then:");
+            console.log("No LAUNCH_QUOTE_BRAND was supplied, so no reserve is open and");
+            console.log("launching is still DISABLED. Open the reserve -- every brand issued");
+            console.log("on it, now or later, becomes launchable at once:");
             console.log(
-                "    cast send <launchFactory> 'setPairTokenEconomics(address,(address,uint256,uint256,uint256,uint8,bool))' <brand> '(<reserve>,3236000000,8090000000,1000000,6,false)'"
-            );
-            console.log(
-                "    cast send <launchFactory> 'setPairTokenApproved(address,bool)' <brand> true"
+                "    cast send <launchFactory> 'setReserveEconomics(address,(uint256,uint256,uint256,uint8,bool))' <reserve> '(3236000000,8090000000,1000000,6,true)'"
             );
             console.log("    cast send <launchFactory> 'setLaunchEnabled(bool)' true");
             console.log("");
@@ -540,11 +556,6 @@ contract DeployLaunchpad is Script {
             lp.factory.graduatedCreatorShareBps() == LaunchpadDefaults.GRADUATED_CREATOR_SHARE_BPS,
             "graduated creator fee share not applied"
         );
-        require(
-            lp.factory.graduatedCreatorYieldShareBps()
-                == LaunchpadDefaults.GRADUATED_CREATOR_YIELD_SHARE_BPS,
-            "graduated creator yield share not applied"
-        );
 
         LaunchFactory.LaunchConfig memory config = lp.factory.getLaunchConfig(launchConfigId);
         require(config.supply == LaunchpadDefaults.LAUNCH_SUPPLY, "launch supply mismatch");
@@ -553,14 +564,16 @@ contract DeployLaunchpad is Script {
         require(config.enabled, "launch config is disabled");
 
         if (e.quoteBrand != address(0)) {
-            (address reserve, uint256 phantom, uint256 threshold, uint256 fee, uint8 dec, bool ok) =
-                lp.factory.pairTokenEconomics(e.quoteBrand);
+            (address reserve, LaunchFactory.ReserveEconomics memory economics) =
+                lp.factory.launchEconomics(e.quoteBrand);
             require(reserve == address(e.reservePool), "brand reserve mismatch");
-            require(phantom == e.phantomQuote, "brand phantom quote mismatch");
-            require(threshold == e.graduationThreshold, "brand threshold mismatch");
-            require(fee == e.launchFee, "brand launch fee mismatch");
-            require(dec == e.quoteDecimals, "brand decimals mismatch");
-            require(ok, "brand is not approved");
+            require(economics.phantomQuote == e.phantomQuote, "brand phantom quote mismatch");
+            require(
+                economics.graduationThreshold == e.graduationThreshold, "brand threshold mismatch"
+            );
+            require(economics.launchFee == e.launchFee, "brand launch fee mismatch");
+            require(economics.decimals == e.quoteDecimals, "brand decimals mismatch");
+            require(economics.approved, "brand is not approved");
             require(lp.factory.launchEnabled(), "launching is not enabled");
         } else {
             require(!lp.factory.launchEnabled(), "launching enabled with no approved brand");

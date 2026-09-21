@@ -82,9 +82,13 @@ contract LaunchAiusdTokenMainnet is Script {
         LaunchFactory.LaunchConfig memory config = launches.getLaunchConfig(configId);
         require(config.enabled, "the selected launch config is disabled");
 
-        LaunchFactory.PairTokenEconomics memory economics = _economics(launches, address(brand));
+        // Economics are keyed by reserve, so this resolves QUOTE_BRAND's reserve and reverts
+        // outright if the brand is unregistered, sits on a reserve the market factory does not
+        // serve, or has not opted into sharing its float -- the conditions a launch checks live.
+        (address economicsReserve, LaunchFactory.ReserveEconomics memory economics) =
+            launches.launchEconomics(address(brand));
         require(economics.approved, "QUOTE_BRAND is not approved launch collateral");
-        require(economics.reserve == address(reserve), "QUOTE_BRAND belongs to another reserve");
+        require(economicsReserve == address(reserve), "QUOTE_BRAND belongs to another reserve");
         require(economics.decimals == brand.decimals(), "QUOTE_BRAND was rescaled under its terms");
         require(reserve.isRegistered(address(brand)), "the reserve does not issue QUOTE_BRAND");
         require(!reserve.paused(), "the reserve is paused, so the shortfall cannot be minted");
@@ -216,30 +220,5 @@ contract LaunchAiusdTokenMainnet is Script {
             "  progress, bps of threshold:", realQuoteAfter * 10_000 / economics.graduationThreshold
         );
         console.log("Graduation was NOT exercised by this run.");
-    }
-
-    /// @dev The public mapping getter returns loose fields; this is the struct the rest of the
-    ///      script reads, and matches how the allowlist script unpacks the same record.
-    function _economics(LaunchFactory launches, address pairToken)
-        private
-        view
-        returns (LaunchFactory.PairTokenEconomics memory e)
-    {
-        (
-            address reserve,
-            uint256 phantomQuote,
-            uint256 graduationThreshold,
-            uint256 launchFee,
-            uint8 decimals,
-            bool approved
-        ) = launches.pairTokenEconomics(pairToken);
-        e = LaunchFactory.PairTokenEconomics({
-            reserve: reserve,
-            phantomQuote: phantomQuote,
-            graduationThreshold: graduationThreshold,
-            launchFee: launchFee,
-            decimals: decimals,
-            approved: approved
-        });
     }
 }

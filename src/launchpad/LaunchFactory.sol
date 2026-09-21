@@ -14,6 +14,7 @@ import {GuardedUpgradeable} from "../upgrade/GuardedUpgradeable.sol";
 import {ReentrancyGuardSlot} from "../upgrade/ReentrancyGuardSlot.sol";
 import {AssetMarketFactory} from "../markets/AssetMarketFactory.sol";
 import {SharedReservePool} from "../pool/SharedReservePool.sol";
+import {PoolBrandTreasury} from "../pool/PoolBrandTreasury.sol";
 import {IPositionManagerV4} from "../interfaces/IPositionManagerV4.sol";
 
 import {LaunchToken} from "./LaunchToken.sol";
@@ -21,6 +22,8 @@ import {LaunchCurve} from "./LaunchCurve.sol";
 import {LaunchDeployment, LaunchDeployer} from "./LaunchDeployer.sol";
 import {LaunchGraduationGuard} from "./LaunchGraduationGuard.sol";
 import {LaunchCurveMath} from "./libraries/LaunchCurveMath.sol";
+import {CurveSegmentConfig, LaunchCurveSegments} from "./libraries/LaunchCurveSegments.sol";
+import {LaunchGuardDeployer} from "./libraries/LaunchGuardDeployer.sol";
 import {
     FeePolicySnapshot,
     GraduationPhase,
@@ -44,10 +47,12 @@ interface ILaunchGraduationWiring {
 ///         between the token and a fresh market unit, seeded with the curve's reserves and
 ///         locked forever.
 ///
-///         Every curve trades in a branded stablecoin — a brand registered on one of the
-///         market factory's reserves — so the float a launch collects earns yield for that
+///         Every curve trades in a branded stablecoin — a brand the market factory registered
+///         on one of its reserves — so the float a launch collects earns yield for that
 ///         brand's treasury while the curve trades, and graduation converts it into the new
-///         market's unit 1:1 with no router and no price oracle.
+///         market's unit 1:1 with no router and no price oracle. The owner opens reserves, not
+///         brands: once a reserve carries `ReserveEconomics`, any dollar issued on it whose
+///         issuer has opted into float sharing may quote a launch, with no approval step.
 ///
 ///         Graduation stays split into two permissionless phases so a failed market creation
 ///         cannot strand a curve's reserves:
@@ -159,15 +164,19 @@ contract LaunchFactory is
         bool enabled;
     }
 
-    /// @notice Curve economics for one approved quote brand, in that brand's own decimals.
-    ///         Required before the brand may be approved, because a figure sized for one
-    ///         scale applied to another would misprice the curve by orders of magnitude.
+    /// @notice Curve economics for every brand of one reserve, in the reserve asset's own
+    ///         decimals. Keyed by reserve rather than by brand because a brand is a costless
+    ///         1:1 wrapper of its reserve's asset, minted at the asset's own scale: every brand
+    ///         of a reserve is worth the same and counts the same, so figures sized for one are
+    ///         sized for all, and a dollar issued tomorrow launches on the same terms with no
+    ///         approval step. The reserve is the unit of approval for the same reason. What
+    ///         stays per brand is checked live at launch instead: that the market factory
+    ///         registered it, and that its issuer opted into sharing float yield.
     ///
     ///         Only `graduationThreshold / (graduationThreshold + phantomQuote)` determines the
     ///         fraction of supply that reaches the graduated pool, so scaling the pair together
     ///         leaves the curve's shape untouched.
-    struct PairTokenEconomics {
-        address reserve;
+    struct ReserveEconomics {
         uint256 phantomQuote;
         uint256 graduationThreshold;
         uint256 launchFee;
@@ -194,9 +203,15 @@ contract LaunchFactory is
     error NotLaunchForwarder();
     error InvalidTokenParams();
     error ExemptionListTooLong();
-    error PairTokenNotApproved();
-    error PairTokenEconomicsInvalid();
+    /// @notice The brand's reserve has no economics written, or the owner has closed it to new
+    ///         launches.
+    error ReserveClosed(address reserve);
+    error ReserveEconomicsInvalid();
     error PairTokenNotRegistered(address pairToken, address reserve);
+    /// @notice The brand's treasury has not named the market factory, so a market quoted in
+    ///         it would earn nothing on the float it locks. The issuer opts in with
+    ///         `PoolBrandTreasury.setFactory`.
+    error PairTokenFloatShareUnavailable(address pairToken);
     error ReserveNotApproved(address reserve);
     error SeedPriceTooCoarse(uint256 assetPriceE18, uint256 minimum);
     error PairTokenDecimalsMismatch(uint8 expected, uint8 actual);
@@ -209,6 +224,10 @@ contract LaunchFactory is
     error GraduationRescueTooEarly(uint256 availableAt);
     error NotCreatorFeeRecipient();
     error NotProposedCreatorFeeRecipient();
+    /// @notice The launch's current tier still has a free rung on `nextFreeTickSpacing`'s
+    ///         ladder, so graduation can open the market with no help, and the owner may not
+    ///         move the tier. See `setSweptLaunchPoolFee`.
+    error LaunchPoolLadderNotExhausted(address token);
 
     // ─── Events ──────────────────────────────────────────────────────────
 
@@ -235,6 +254,7 @@ contract LaunchFactory is
     event GraduationRescued(
         address indexed token, address indexed to, uint256 quote, uint256 tokens
     );
+    event LaunchPoolFeeRetiered(address indexed token, uint24 previousFee, uint24 newFee);
     event CreatorFeeRecipientProposed(
         address indexed token, address indexed current, address indexed proposed
     );
@@ -244,8 +264,7 @@ contract LaunchFactory is
     event LaunchConfigAdded(uint256 indexed id);
     event LaunchConfigUpdated(uint256 indexed id);
     event LaunchEnabledUpdated(bool enabled);
-    event PairTokenEconomicsUpdated(
-        address indexed pairToken,
+    event ReserveEconomicsUpdated(
         address indexed reserve,
         uint256 phantomQuote,
         uint256 graduationThreshold,
@@ -253,13 +272,12 @@ contract LaunchFactory is
         uint8 decimals,
         bool approved
     );
-    event PairTokenApprovalUpdated(address indexed pairToken, bool approved);
+    event ReserveApprovalUpdated(address indexed reserve, bool approved);
     event ProtocolFeeRecipientUpdated(address recipient);
     event ProtocolFeeShareUpdated(uint16 bps);
     event MaxCreatorTaxUpdated(uint16 bps);
     event SnipeTaxUpdated(uint256 startBps, uint256 secondsWindow);
     event GraduatedCreatorShareUpdated(uint16 bps);
-    event GraduatedCreatorYieldShareUpdated(uint16 bps);
     event LpFundRecipientUpdated(address recipient);
     event LpFundShareUpdated(uint16 bps);
     event GraduatedLpFundShareUpdated(uint16 bps);
@@ -282,6 +300,13 @@ contract LaunchFactory is
     ILaunchFeeEscrow public feeEscrow;
 
     /// @notice Stateless seed preflight, deployed at initialisation.
+    ///
+    /// @dev    Deployed through `LaunchGuardDeployer` rather than with `new` here. That is an
+    ///         EIP-170 measure and nothing else: an inline `new` would carry the guard's
+    ///         2,970 bytes of creation code in this contract's own runtime, which is the whole
+    ///         of why the factory was over the limit. The library call is a `DELEGATECALL`, so
+    ///         the `CREATE` still runs from this proxy's nonce and the guard lands exactly
+    ///         where it always did.
     LaunchGraduationGuard public graduationGuard;
 
     // Not immutable: each helper's constructor needs this factory's already-deployed address,
@@ -310,15 +335,28 @@ contract LaunchFactory is
     ///         locked position is the only liquidity, so it is the whole tier.
     uint16 public graduatedCreatorShareBps;
     bool public launchEnabled;
-    /// @notice The creator's share of what a locked position earns in FLOAT YIELD, read live
-    ///         by the locker at every collect. The yield is earned by the reserve's
-    ///         collateral rather than by the launch, so unlike the LP-fee share it is not a
-    ///         term the creator is sold, and it stays revocable.
+    /// @notice The creator's share of a locked position's FLOAT YIELD, in bps. Read by
+    ///         exactly one caller: the `LaunchLocker` deployed BEFORE this change, which
+    ///         custodies the positions locked before this change (markets 16, 17 and 18) and
+    ///         calls this getter unconditionally inside `collect()`. That locker is not
+    ///         upgradeable and holds its factory address immutably, so removing this getter
+    ///         would revert every `collect()` it can ever make and strand those three
+    ///         creators' fees, the LP fund's fees, the protocol's fees and the accrued float
+    ///         yield permanently — there is no function on it that moves a position or its
+    ///         income elsewhere.
     ///
-    /// @dev    Declared here, after `launchEnabled`, on purpose. Those two occupy 3 bytes of
-    ///         one slot, so a third short value packs into the same slot and no mapping,
-    ///         array or gap below it moves — the layout stays compatible for the live proxy,
-    ///         and an upgrade reads the shipped default of zero without a reinitializer.
+    /// @dev    **Deliberately not settable.** The live slot holds 4_000, written by the
+    ///         original `initialize`, and that is exactly the term those three creators were
+    ///         sold; no setter exists so no owner can reprice a leg that is already running.
+    ///         A fresh deployment reads 0, which is correct: a fresh deployment's locker
+    ///         renounces its reward stream at `recordPosition`, so no float yield ever
+    ///         reaches it, the current locker never reads this value, and there is nothing
+    ///         to split.
+    ///
+    ///         The slot also cannot be moved. These 2 bytes sit between `launchEnabled` and
+    ///         `lpFundRecipient` inside one packed slot, so removing them would slide a live
+    ///         proxy's `lpFundRecipient` two bytes down and hand the LP fund's address to
+    ///         whatever the shift produced.
     uint16 public graduatedCreatorYieldShareBps;
     /// @inheritdoc ILaunchFeePolicy
     ///
@@ -340,16 +378,34 @@ contract LaunchFactory is
     ///         numbers that have to be moved together and a state where they disagree.
     uint16 public graduatedLpFundShareBps;
 
-    mapping(address pairToken => PairTokenEconomics economics) public pairTokenEconomics;
+    /// @dev The slot the per-brand `pairTokenEconomics` mapping occupied before economics
+    ///      were keyed by reserve. Retired rather than reused: the live proxy still holds the
+    ///      old entries under brand keys, and a mapping of a different value type at this slot
+    ///      would decode them as garbage for anyone who queried a brand — with `approved`
+    ///      reading true off a byte of the old launch fee. Nothing reads this. Kept so nothing
+    ///      below it moves.
+    uint256 private __retiredPairTokenEconomics;
     mapping(address token => LaunchedToken launched) private _launchedTokens;
     /// @notice The recipient a launch's current creator fee recipient has offered to hand
     ///         over to. Zero when nothing is pending.
     mapping(address token => address proposed) public pendingCreatorFeeRecipient;
     LaunchConfig[] private _launchConfigs;
     address[] private _launches;
+    /// @notice Curve economics and the launch switch for every brand of a reserve, keyed by
+    ///         the reserve. See `ReserveEconomics` for why the brand is not the key.
+    /// @dev    Appended below everything already written and taken out of the gap, so the
+    ///         upgrade that introduced it carried empty calldata: every reserve reads zero,
+    ///         which is closed, until the owner writes its figures.
+    mapping(address reserve => ReserveEconomics economics) public reserveEconomics;
+    /// @dev Declared curve shape per launch config, kept beside `_launchConfigs` rather than
+    ///      inside it: the struct is the one this proxy has already written entries of, and
+    ///      growing it would move every field of every existing entry. An id with no entry
+    ///      here is the unsegmented curve, which is every config written before segments
+    ///      existed. Also out of the gap, below `reserveEconomics`.
+    mapping(uint256 launchConfigId => CurveSegmentConfig[] segments) private _launchConfigSegments;
 
     /// @dev Room for later versions to add state.
-    uint256[40] private __gap;
+    uint256[38] private __gap;
 
     // ─── Construction ────────────────────────────────────────────────────
 
@@ -383,14 +439,13 @@ contract LaunchFactory is
         marketFactory = marketFactory_;
         positionManager = positionManager_;
         feeEscrow = feeEscrow_;
-        graduationGuard = new LaunchGraduationGuard();
+        graduationGuard = LaunchGuardDeployer.deploy();
 
         protocolFeeShareBps = 3_000;
         maxCreatorTaxBps = 1_000;
         snipeTaxStartBps = 9_900;
         snipeTaxSeconds = 15;
         graduatedCreatorShareBps = 4_000;
-        graduatedCreatorYieldShareBps = 4_000;
         // The fund's recipient is deliberately NOT defaulted to the protocol treasury here.
         // A fresh deployment starts with the leg off, and `setLpFundRecipient` is what turns
         // it on, so the fund's address is always something an operator chose rather than
@@ -450,6 +505,23 @@ contract LaunchFactory is
         });
     }
 
+    /// @notice The reserve `pairToken` is a brand of, and the terms a launch quoted in it takes
+    ///         right now. Every brand of a reserve answers the same figures; `approved` is
+    ///         false while the reserve is closed or has no figures written.
+    /// @dev Reverts rather than answering for anything that could never launch whatever the
+    ///      figures said: a token the market factory did not register as a brand, a brand of a
+    ///      reserve the factory no longer serves, or a brand whose issuer has not opted into
+    ///      sharing float yield. Those are the launch's own refusals, made once here so a
+    ///      router can meet them before it pulls anything.
+    function launchEconomics(address pairToken)
+        public
+        view
+        returns (address reserve, ReserveEconomics memory economics)
+    {
+        reserve = _quoteReserve(pairToken);
+        economics = reserveEconomics[reserve];
+    }
+
     /// @notice Returns the economics digest a launch of `launchConfigId` in `pairToken` would
     ///         produce right now, for a creator to pass back as `TokenParams.expectedEconomics`.
     /// @dev Reading the digest and launching in separate transactions still leaves the terms
@@ -461,7 +533,8 @@ contract LaunchFactory is
         returns (bytes32)
     {
         if (launchConfigId >= _launchConfigs.length) revert InvalidLaunchConfigId();
-        return _economicsDigest(_launchConfigs[launchConfigId], pairTokenEconomics[pairToken]);
+        (address reserve, ReserveEconomics memory economics) = launchEconomics(pairToken);
+        return _economicsDigest(_launchConfigs[launchConfigId], reserve, economics, launchConfigId);
     }
 
     /// @notice The curve and token addresses `launchToken` would deploy for these terms, or
@@ -475,8 +548,11 @@ contract LaunchFactory is
         if (launchConfigId >= _launchConfigs.length) {
             revert InvalidLaunchConfigId();
         }
+        (, ReserveEconomics memory economics) = launchEconomics(pairToken);
         return launchDeployer.predictLaunchAddresses(
-            _deployment(params, _launchConfigs[launchConfigId], pairToken, originalDeployer)
+            _deployment(
+                params, _launchConfigs[launchConfigId], pairToken, economics, originalDeployer
+            )
         );
     }
 
@@ -498,12 +574,13 @@ contract LaunchFactory is
     ///      creator must be able to pin it. The post-graduation fund share is read live and
     ///      is carved out of the protocol's own remainder, so it can never move what the
     ///      creator is owed and there is nothing for them to pin.
-    function _economicsDigest(LaunchConfig memory config, PairTokenEconomics memory economics)
-        private
-        view
-        returns (bytes32)
-    {
-        return keccak256(
+    function _economicsDigest(
+        LaunchConfig memory config,
+        address reserve,
+        ReserveEconomics memory economics,
+        uint256 launchConfigId
+    ) private view returns (bytes32) {
+        bytes32 digest = keccak256(
             abi.encode(
                 economics.phantomQuote,
                 economics.graduationThreshold,
@@ -516,9 +593,16 @@ contract LaunchFactory is
                 graduatedCreatorShareBps,
                 snipeTaxStartBps,
                 snipeTaxSeconds,
-                economics.reserve
+                reserve
             )
         );
+        // The declared curve shape is exactly the kind of term this digest exists to pin: the
+        // owner can change it and the creator cannot react once the curve is live. Mixed in
+        // only when there is a shape to pin, so a config that has never been segmented keeps
+        // the digest its creators were already quoted.
+        CurveSegmentConfig[] memory segments = _launchConfigSegments[launchConfigId];
+        if (segments.length == 0) return digest;
+        return keccak256(abi.encode(digest, segments));
     }
 
     // ─── Owner configuration ─────────────────────────────────────────────
@@ -616,56 +700,122 @@ contract LaunchFactory is
         emit LaunchConfigUpdated(id);
     }
 
-    /// @notice Sets the curve economics a quote brand's launches use, in that brand's own
-    ///         decimals, and which reserve the brand belongs to. Existing launches are
-    ///         unaffected: each curve receives its figures as constructor immutables, so this
-    ///         only governs launches created after it.
-    /// @dev The brand must already be registered in `e.reserve`, and that reserve must be one
-    ///      the market factory registers units in, because graduation swaps the curve's float
-    ///      into the new market's unit 1:1 inside that reserve. A brand from any other reserve
-    ///      would have no free conversion path.
-    function setPairTokenEconomics(address pairToken, PairTokenEconomics calldata e)
+    /// @notice Adds a launch configuration whose curve is split into ordered segments, each
+    ///         taking a share of the sellable allocation at its own steepness. See
+    ///         `CurveSegmentConfig`: the declaration is relative on both axes, so one config
+    ///         still describes the same curve against every approved quote brand.
+    /// @dev An empty `segments` is the unsegmented curve and is identical to the
+    ///      single-argument overload.
+    function addLaunchConfig(LaunchConfig calldata config, CurveSegmentConfig[] calldata segments)
         external
         onlyOwner
+        returns (uint256 id)
     {
-        if (pairToken == address(0) || e.reserve == address(0)) revert ZeroAddress();
-        if (e.phantomQuote == 0 || e.graduationThreshold == 0) revert PairTokenEconomicsInvalid();
+        _validateLaunchConfig(config);
+        LaunchCurveSegments.validateShape(segments);
+        id = _launchConfigs.length;
+        _launchConfigs.push(config);
+        _writeLaunchConfigSegments(id, segments);
+        emit LaunchConfigAdded(id);
+    }
+
+    /// @notice Replaces an existing launch configuration and its declared curve shape. Pass
+    ///         an empty `segments` to return the config to an unsegmented curve.
+    /// @dev The single-argument `updateLaunchConfig` leaves an existing shape in place. The
+    ///      shares are fractions of the sellable allocation and the steepnesses are relative
+    ///      to the curve's own opening product, so a shape stays meaningful across a change
+    ///      of supply or fee; dropping it silently would be the surprising behaviour.
+    function updateLaunchConfig(
+        uint256 id,
+        LaunchConfig calldata config,
+        CurveSegmentConfig[] calldata segments
+    ) external onlyOwner {
+        if (id >= _launchConfigs.length) {
+            revert InvalidLaunchConfigId();
+        }
+        _validateLaunchConfig(config);
+        LaunchCurveSegments.validateShape(segments);
+        _launchConfigs[id] = config;
+        _writeLaunchConfigSegments(id, segments);
+        emit LaunchConfigUpdated(id);
+    }
+
+    /// @notice The curve shape configuration `id` declares. Empty for an unsegmented curve.
+    function getLaunchConfigSegments(uint256 id)
+        external
+        view
+        returns (CurveSegmentConfig[] memory)
+    {
+        if (id >= _launchConfigs.length) {
+            revert InvalidLaunchConfigId();
+        }
+        return _launchConfigSegments[id];
+    }
+
+    /// @dev Overwrites a config's declared shape, shrinking first so a shorter declaration
+    ///      cannot leave the tail of a longer one behind it.
+    function _writeLaunchConfigSegments(uint256 id, CurveSegmentConfig[] calldata segments)
+        private
+    {
+        CurveSegmentConfig[] storage stored = _launchConfigSegments[id];
+        while (stored.length > segments.length) {
+            stored.pop();
+        }
+        for (uint256 i = 0; i < segments.length; ++i) {
+            if (i < stored.length) stored[i] = segments[i];
+            else stored.push(segments[i]);
+        }
+    }
+
+    /// @notice Sets the curve economics every brand of `reserve` launches on, in the reserve
+    ///         asset's own decimals. Existing launches are unaffected: each curve receives its
+    ///         figures as constructor immutables, so this only governs launches created after
+    ///         it.
+    /// @dev The reserve must be one the market factory opens markets in, because graduation
+    ///      opens the market quoted in the launch's brand inside that reserve. Which brands of
+    ///      it may quote a launch is not decided here: every brand the market factory
+    ///      registered on it qualifies, and the two per-brand conditions — that registration,
+    ///      and the issuer's float-share opt-in — are checked live at launch by
+    ///      `_quoteReserve`, so a dollar issued after this call needs no owner action.
+    ///
+    ///      `e.decimals` is pinned to the reserve's `assetDecimals` because that is the scale
+    ///      every brand of it is minted at, and the figures here are sized for that scale. A
+    ///      launch re-reads the brand's own `decimals()` against it, since a brand
+    ///      implementation is upgradeable and the curve prices against the stored figure for
+    ///      its whole life.
+    function setReserveEconomics(address reserve, ReserveEconomics calldata e) external onlyOwner {
+        if (reserve == address(0)) revert ZeroAddress();
+        if (e.phantomQuote == 0 || e.graduationThreshold == 0) revert ReserveEconomicsInvalid();
         // Curve fees are integer basis points of the quote leg, so on a coarse asset every
         // trade below BASIS_POINTS / feeBps base units rounds its fee to zero and a trader can
         // split an order into fee-free pieces. Six decimals is the floor at which that band
         // is dust, and matches the least granular asset worth quoting in.
-        if (e.decimals < MIN_PAIR_TOKEN_DECIMALS) revert PairTokenEconomicsInvalid();
+        if (e.decimals < MIN_PAIR_TOKEN_DECIMALS) revert ReserveEconomicsInvalid();
         if (
-            e.reserve != address(marketFactory.reservePool())
-                && !marketFactory.approvedReservePool(e.reserve)
-        ) revert ReserveNotApproved(e.reserve);
-        if (!SharedReservePool(e.reserve).isRegistered(pairToken)) {
-            revert PairTokenNotRegistered(pairToken, e.reserve);
+            reserve != address(marketFactory.reservePool())
+                && !marketFactory.approvedReservePool(reserve)
+        ) revert ReserveNotApproved(reserve);
+        if (SharedReservePool(reserve).assetDecimals() != e.decimals) {
+            revert ReserveEconomicsInvalid();
         }
-        _requireDecimals(pairToken, e.decimals);
-        // A launch against this brand takes its phantom reserve from here but its supply from
+        // A launch on this reserve takes its phantom reserve from here but its supply from
         // whichever config it selects, so the strictest case is the smallest supply any
         // config may declare paired with the highest fee any of them may charge.
         _requireQuotable(e.phantomQuote, MIN_LAUNCH_SUPPLY, MAX_CURVE_FEE_BPS);
 
-        pairTokenEconomics[pairToken] = e;
-        emit PairTokenEconomicsUpdated(
-            pairToken,
-            e.reserve,
-            e.phantomQuote,
-            e.graduationThreshold,
-            e.launchFee,
-            e.decimals,
-            e.approved
+        reserveEconomics[reserve] = e;
+        emit ReserveEconomicsUpdated(
+            reserve, e.phantomQuote, e.graduationThreshold, e.launchFee, e.decimals, e.approved
         );
     }
 
-    /// @notice Opens or closes a quote brand for new launches without touching its economics.
-    function setPairTokenApproved(address pairToken, bool approved) external onlyOwner {
-        PairTokenEconomics storage economics = pairTokenEconomics[pairToken];
-        if (approved && economics.phantomQuote == 0) revert PairTokenEconomicsInvalid();
+    /// @notice Opens or closes every brand of a reserve for new launches without touching the
+    ///         reserve's economics.
+    function setReserveApproved(address reserve, bool approved) external onlyOwner {
+        ReserveEconomics storage economics = reserveEconomics[reserve];
+        if (approved && economics.phantomQuote == 0) revert ReserveEconomicsInvalid();
         economics.approved = approved;
-        emit PairTokenApprovalUpdated(pairToken, approved);
+        emit ReserveApprovalUpdated(reserve, approved);
     }
 
     /// @notice Where launch fees and the protocol's share of curve fees are credited. Curves
@@ -765,33 +915,26 @@ contract LaunchFactory is
         emit GraduatedCreatorShareUpdated(bps);
     }
 
-    /// @notice The creator's share of a locked position's FLOAT YIELD, effective on the next
-    ///         `collect` of every position, live ones included.
-    ///
-    /// @dev    Deliberately absent from `_economicsDigest`: that digest covers terms frozen
-    ///         into a launch, and this one is not frozen. A creator is sold the fee split and
-    ///         can hold the protocol to it; the yield a market's collateral earns is the
-    ///         reserve's, and giving a share of it away has to be revocable or it becomes a
-    ///         permanent claim on every reserve the launchpad ever graduates into.
-    function setGraduatedCreatorYieldShareBps(uint16 bps) external onlyOwner {
-        if (bps > BASIS_POINTS) revert InvalidBasisPoints();
-        if (uint256(bps) + graduatedLpFundShareBps > BASIS_POINTS) revert InvalidBasisPoints();
-        graduatedCreatorYieldShareBps = bps;
-        emit GraduatedCreatorYieldShareUpdated(bps);
-    }
-
-    /// @notice The LP fund's share of BOTH post-graduation legs, effective on the next
+    /// @notice The LP fund's share of a locked position's LP FEES, effective on the next
     ///         `collect` of every locked position.
     ///
-    /// @dev    Bounded against both creator rates, because it is subtracted alongside
-    ///         whichever of them applies to the leg being split. The fund's cut comes out of
-    ///         the protocol's remainder, never the creator's share, so raising this dilutes
-    ///         the protocol alone — which is what makes it safe to apply retroactively to
-    ///         positions that graduated before the fund existed.
+    /// @dev    Bounded against the creator rate, because it is subtracted alongside it. The
+    ///         fund's cut comes out of the protocol's remainder, never the creator's share,
+    ///         so raising this dilutes the protocol alone — which is what makes it safe to
+    ///         apply retroactively to positions that graduated before the fund existed.
+    ///
+    ///         The current locker has no yield leg for it to split. A position it records
+    ///         renounces its reward stream at `recordPosition`, so a market's float yield
+    ///         goes entirely to its liquidity providers and never passes through it.
+    ///
+    ///         Bounded against `graduatedCreatorYieldShareBps` anyway, because the locker
+    ///         deployed before this change DOES split a yield leg and reverts `ShareTooHigh`
+    ///         when `graduatedCreatorYieldShareBps() + graduatedLpFundShareBps() > 10_000`.
+    ///         Without this line an owner raising the fund's share would brick `collect()`
+    ///         on markets 16, 17 and 18 for good.
     ///
     ///         Retroactive only within a locker. Positions staked through an earlier locker
-    ///         are split by that contract's code, which has no fund leg at all, so their LP
-    ///         fees keep paying creator-and-protocol on the rate they were recorded with.
+    ///         are split by that contract's code, on the rates they were recorded with.
     function setGraduatedLpFundShareBps(uint16 bps) external onlyOwner {
         if (bps > MAX_LP_FUND_SHARE_BPS) revert InvalidBasisPoints();
         if (graduatedCreatorShareBps + bps > BASIS_POINTS) revert InvalidBasisPoints();
@@ -857,13 +1000,16 @@ contract LaunchFactory is
         address pairToken,
         address originalDeployer
     ) private returns (address token, address curve) {
-        (LaunchConfig memory config, PairTokenEconomics memory economics) =
+        (LaunchConfig memory config, address reserve, ReserveEconomics memory economics) =
             _validateLaunch(params, launchConfigId, pairToken);
 
         LaunchDeployment memory deployment =
-            _deployment(params, config, pairToken, originalDeployer);
+            _deployment(params, config, pairToken, economics, originalDeployer);
         (token, curve) = launchDeployer.deployLaunch(deployment);
-        LaunchCurve(curve).initialize(token);
+        // An empty shape is the unsegmented curve, which is what every config written before
+        // segments existed declares.
+        CurveSegmentConfig[] memory segments = _launchConfigSegments[launchConfigId];
+        LaunchCurve(curve).initialize(token, segments);
 
         // The creator's own addresses never count as snipers on their own launch: an atomic
         // dev buy lands in the launch second, exactly when the tax peaks, and would otherwise
@@ -873,7 +1019,7 @@ contract LaunchFactory is
             LaunchCurve(curve).exemptFromSnipeTax(deployment.creatorFeeRecipient);
         }
 
-        _recordLaunch(token, curve, deployment, config, economics, launchConfigId);
+        _recordLaunch(token, curve, deployment, config, reserve, economics, launchConfigId);
 
         // Last, after the launch is fully recorded, so a failed launch never takes a fee and
         // the pull cannot observe a half-written record through a callback.
@@ -888,7 +1034,7 @@ contract LaunchFactory is
     function _validateLaunch(TokenParams calldata params, uint256 launchConfigId, address pairToken)
         private
         view
-        returns (LaunchConfig memory config, PairTokenEconomics memory economics)
+        returns (LaunchConfig memory config, address reserve, ReserveEconomics memory economics)
     {
         if (
             address(launchDeployer) == address(0) || address(graduation) == address(0)
@@ -901,29 +1047,18 @@ contract LaunchFactory is
         }
         if (params.creatorTaxBps > maxCreatorTaxBps) revert CreatorTaxTooHigh();
 
-        economics = pairTokenEconomics[pairToken];
-        if (!economics.approved) revert PairTokenNotApproved();
-        // The scale was verified when the economics were set, but an upgradeable brand can
-        // change it afterwards, and this curve prices against the stored figure for its
-        // entire life. Re-reading here keeps a silent mispricing out of the launch.
+        (reserve, economics) = launchEconomics(pairToken);
+        if (!economics.approved) revert ReserveClosed(reserve);
+        // The scale was pinned to the reserve's when the economics were set, but an
+        // upgradeable brand can change it afterwards, and this curve prices against the
+        // stored figure for its entire life. Re-reading here keeps a silent mispricing out of
+        // the launch.
         _requireDecimals(pairToken, economics.decimals);
-        // And the reserve, for the same reason one step further out. `setPairTokenEconomics`
-        // checked that this brand's reserve was one the market factory would accept, but the
-        // owner may retire a reserve afterwards with `setApprovedReservePool(pool, false)` and
-        // nothing here would notice. A launch created against a retired reserve trades
-        // normally, sweeps normally, and then fails `_resolveReserve` on every single
-        // `graduateToMarket` attempt — permanently pinned in Swept, with the owner's rescue as
-        // the only exit for money that belongs to its traders. Refuse it while the only thing
-        // at stake is the creator's unspent launch fee.
-        if (
-            economics.reserve != address(marketFactory.reservePool())
-                && !marketFactory.approvedReservePool(economics.reserve)
-        ) revert ReserveNotApproved(economics.reserve);
 
         config = _launchConfigs[launchConfigId];
         // Every term below is owner-updatable, so a creator may pin the whole set they were
         // quoted rather than accept whatever is current when their transaction lands.
-        bytes32 digest = _economicsDigest(config, economics);
+        bytes32 digest = _economicsDigest(config, reserve, economics, launchConfigId);
         if (params.expectedEconomics != bytes32(0) && params.expectedEconomics != digest) {
             revert LaunchEconomicsMismatch(params.expectedEconomics, digest);
         }
@@ -937,13 +1072,17 @@ contract LaunchFactory is
         // A config and a quote brand are validated separately but graduate as a pair, and it
         // is the pair that fixes the seed. Terms that imply a position V4 will not mint are
         // refused here, while the creator still has their fee and nothing has been deployed.
+        (uint256 quoteAtGraduation, uint256 seedPhantomQuote) =
+            _graduationTerms(config, economics, launchConfigId);
         _requireSeedableTerms(
             config.supply,
             economics.phantomQuote,
             economics.graduationThreshold,
-            marketFactory.tickSpacingForFee(config.poolFee)
+            marketFactory.tickSpacingForFee(config.poolFee),
+            quoteAtGraduation,
+            seedPhantomQuote
         );
-        _requireSeedPriceResolvable(config, economics);
+        _requireSeedPriceResolvable(config, economics, quoteAtGraduation, seedPhantomQuote);
     }
 
     /// @dev Writes the launch record and announces it.
@@ -952,7 +1091,8 @@ contract LaunchFactory is
         address curve,
         LaunchDeployment memory deployment,
         LaunchConfig memory config,
-        PairTokenEconomics memory economics,
+        address reserve,
+        ReserveEconomics memory economics,
         uint256 launchConfigId
     ) private {
         LaunchedToken storage launch = _launchedTokens[token];
@@ -961,7 +1101,7 @@ contract LaunchFactory is
         launch.deployer = deployment.originalDeployer;
         launch.creatorFeeRecipient = deployment.creatorFeeRecipient;
         launch.pairToken = deployment.pairToken;
-        launch.reserve = economics.reserve;
+        launch.reserve = reserve;
         launch.graduationThreshold = economics.graduationThreshold;
         launch.poolFee = config.poolFee;
         launch.creatorTaxBps = uint16(deployment.creatorTaxBps);
@@ -974,7 +1114,7 @@ contract LaunchFactory is
             curve,
             deployment.originalDeployer,
             deployment.pairToken,
-            economics.reserve,
+            reserve,
             launchConfigId,
             economics.graduationThreshold
         );
@@ -986,9 +1126,9 @@ contract LaunchFactory is
         TokenParams calldata params,
         LaunchConfig memory config,
         address pairToken,
+        ReserveEconomics memory economics,
         address originalDeployer
-    ) private view returns (LaunchDeployment memory d) {
-        PairTokenEconomics storage economics = pairTokenEconomics[pairToken];
+    ) private pure returns (LaunchDeployment memory d) {
         d.pairToken = pairToken;
         d.creatorFeeRecipient = params.creatorFeeRecipient == address(0)
             ? originalDeployer
@@ -1093,7 +1233,7 @@ contract LaunchFactory is
 
         uint256 quoteAmount = launch.sweptQuote;
         uint256 tokenAmount = launch.sweptTokens;
-        uint256 phantomQuote = LaunchCurve(launch.curve).phantomQuote();
+        uint256 phantomQuote = _graduationPhantomQuote(launch.curve);
         // Only the token amount that preserves the terminal curve price against the
         // physically held quote reaches the pool; the module locks the remainder.
         uint256 tokensSeeded = FullMath.mulDiv(tokenAmount, quoteAmount, quoteAmount + phantomQuote);
@@ -1133,8 +1273,8 @@ contract LaunchFactory is
         );
     }
 
-    /// @dev The graduation module's input for a swept launch. The unit is named after the
-    ///      token's symbol so it reads as the market's dollar, never as the token itself.
+    /// @dev The graduation module's input for a swept launch. No unit is named: the market
+    ///      opens quoted in the brand the curve was quoted in, so there is nothing to mint.
     function _seed(
         address token,
         LaunchedToken storage launch,
@@ -1142,7 +1282,6 @@ contract LaunchFactory is
         uint256 tokenAmount,
         uint256 phantomQuote
     ) private view returns (ILaunchGraduation.Seed memory seed) {
-        string memory symbol = IERC20Metadata(token).symbol();
         seed.token = token;
         seed.pairToken = launch.pairToken;
         seed.reserve = launch.reserve;
@@ -1153,8 +1292,89 @@ contract LaunchFactory is
         seed.quoteAmount = quoteAmount;
         seed.tokenAmount = tokenAmount;
         seed.phantomQuote = phantomQuote;
-        seed.unitName = string.concat(symbol, " Market Dollar");
-        seed.unitSymbol = string.concat(symbol, ".d");
+    }
+
+    /// @notice Re-points an ungraduated launch at a different LP fee tier, so a launch whose
+    ///         graduated pool key has been squatted can still graduate.
+    ///
+    /// @dev    **The attack this exists for.** A graduated market is quoted in the launch's
+    ///         own brand, so both currencies of its v4 pool exist from the moment the launch
+    ///         is created and its `PoolKey` — `(quoteBrand, launchToken, launch.poolFee,
+    ///         tickSpacingForFee(fee), ProtocolFeeHook)` — is fully predictable. The hook
+    ///         declares `beforeInitialize: false`, so `PoolManager.initialize` on that key is
+    ///         permissionless.
+    ///
+    ///         **This is now the second line, not the first.**
+    ///         `AssetMarketFactory.createLaunchMarket` walks a tick-spacing ladder and opens
+    ///         the market on the first free rung, so a squatted canonical key no longer stops
+    ///         a graduation at all and this setter is not needed for the ordinary attack.
+    ///         What it still covers is the case the ladder cannot: an attacker who has taken
+    ///         every one of `nextFreeTickSpacing`'s rungs at the launch's current tier. Moving
+    ///         the tier hands graduation a whole fresh ladder for one owner transaction,
+    ///         instead of a 7-day `rescueSweptGraduation` and an off-chain distribution.
+    ///
+    ///         **Only for an exhausted ladder, because the tier is a term the creator was
+    ///         quoted.** It is part of `_economicsDigest` and it fixes what a trader pays on
+    ///         the graduated market, so an owner who could move it at will could change a
+    ///         quoted term after the fact and call it maintenance. A squat on the launch's
+    ///         canonical key is not enough to unlock it: `createLaunchMarket` walks past that
+    ///         one without any owner involvement, so gating on it would let any third party
+    ///         hand the owner a re-tiering power for a single ~60k-gas `initialize` — a 100x
+    ///         swing on a term nobody asked to have moved. The gate is the ladder itself
+    ///         being gone: `nextFreeTickSpacing` returns `0` exactly then, and returning `0`
+    ///         rather than reverting was designed for this caller. A tier with any rung left
+    ///         is `LaunchPoolLadderNotExhausted`. Owner-only on top of that, because letting
+    ///         anyone move it would hand the squatter a second lever.
+    ///
+    ///         **Unreachable after graduation.** A `Graduated` launch's pool is open and
+    ///         holds the locked seed; re-pointing its tier would leave the market's stored
+    ///         key describing a pool nothing was minted into. Only `NotGraduated` and
+    ///         `Swept` are accepted, and a `Rescued` launch has nothing left to seed.
+    ///
+    ///         The new tier is run through the same two rejections graduation applies:
+    ///         `tickSpacingForFee` for the tier itself, and `LaunchGraduationGuard` for the
+    ///         seed at the spacing that tier implies, so the owner cannot swap a squatted
+    ///         tier for one the mint would then refuse. A swept launch is preflighted on its
+    ///         actual swept amounts, exactly as `graduateToMarket` will; one still on its
+    ///         curve is preflighted on the terms its record fixes, exactly as `createLaunch`
+    ///         did — which, as there, narrows the failure rather than removing it, because
+    ///         fees and the creator tax move the realised quote slightly off the threshold.
+    ///
+    ///         The preflight is run on the NEW tier's canonical spacing. A ladder rung is one
+    ///         to thirty-one ticks wider, and `LaunchGraduation._mintFullRange` re-asserts on
+    ///         the spacing the pool actually opened with, so the check here stays the
+    ///         conservative one whichever rung graduation ends up taking.
+    function setSweptLaunchPoolFee(address token, uint24 fee) external onlyOwner {
+        LaunchedToken storage launch = _launchedTokens[token];
+        if (!launch.exists) revert TokenNotFound();
+        GraduationPhase phase = launch.phase;
+        if (phase != GraduationPhase.NotGraduated && phase != GraduationPhase.Swept) {
+            revert WrongGraduationPhase();
+        }
+        // Reverts `UnsupportedFeeTier` for a tier the market factory would refuse.
+        int24 tickSpacing = marketFactory.tickSpacingForFee(fee);
+
+        uint24 previousFee = launch.poolFee;
+        if (marketFactory.nextFreeTickSpacing(launch.pairToken, token, previousFee) != 0) {
+            revert LaunchPoolLadderNotExhausted(token);
+        }
+
+        uint256 quoteAmount;
+        uint256 tokenAmount;
+        if (phase == GraduationPhase.Swept) {
+            quoteAmount = launch.sweptQuote;
+            tokenAmount = launch.sweptTokens;
+        } else {
+            quoteAmount = launch.graduationThreshold;
+            tokenAmount = LaunchCurve(launch.curve).reservedTokens();
+        }
+        uint256 phantomQuote = LaunchCurve(launch.curve).phantomQuote();
+        uint256 tokensSeeded = FullMath.mulDiv(tokenAmount, quoteAmount, quoteAmount + phantomQuote);
+        if (tokensSeeded == 0) revert GraduationSeedNotViable();
+        graduationGuard.assertSeedableEitherOrdering(tickSpacing, quoteAmount, tokensSeeded);
+
+        launch.poolFee = fee;
+        emit LaunchPoolFeeRetiered(token, previousFee, fee);
     }
 
     /// @notice Releases a swept launch's reserves to `recipient` when phase two can no longer
@@ -1238,19 +1458,102 @@ contract LaunchFactory is
     ///      at graduation where the only exit is `SeedPriceTooCoarse` and a retry.
     function _requireSeedPriceResolvable(
         LaunchConfig memory config,
-        PairTokenEconomics memory economics
+        ReserveEconomics memory economics,
+        uint256 quoteAtGraduation,
+        uint256 seedPhantomQuote
     ) private pure {
-        uint256 quote = economics.graduationThreshold;
-        uint256 tokensSeeded = FullMath.mulDiv(config.supply, quote, quote + economics.phantomQuote);
+        uint256 tokensSeeded = FullMath.mulDiv(
+            config.supply, quoteAtGraduation, quoteAtGraduation + seedPhantomQuote
+        );
         if (tokensSeeded == 0) revert SeedPriceTooCoarse(0, MIN_SEED_PRICE_E18);
 
         // Mirrors `LaunchGraduation._createMarket` exactly, with the launch token's fixed
         // 18 decimals substituted for the read it does there.
-        uint256 assetPriceE18 =
-            FullMath.mulDiv(quote * 1e18, 1e18, tokensSeeded * 10 ** uint256(economics.decimals));
+        uint256 assetPriceE18 = FullMath.mulDiv(
+            quoteAtGraduation * 1e18, 1e18, tokensSeeded * 10 ** uint256(economics.decimals)
+        );
         if (assetPriceE18 < MIN_SEED_PRICE_E18) {
             revert SeedPriceTooCoarse(assetPriceE18, MIN_SEED_PRICE_E18);
         }
+    }
+
+    /// @dev The quote a launch on these terms ends its curve holding, and the virtual reserve
+    ///      that reproduces the price it ends at. An unsegmented config returns the reserve's
+    ///      own threshold and phantom reserve unchanged, so nothing about an existing config
+    ///      moves; a segmented one is resolved through the same code the curve itself will
+    ///      run at initialize, because a steepened curve ends above its threshold and seeds
+    ///      its pool deeper and higher than the threshold alone implies.
+    function _graduationTerms(
+        LaunchConfig memory config,
+        ReserveEconomics memory economics,
+        uint256 launchConfigId
+    ) private view returns (uint256 quoteAtGraduation, uint256 seedPhantomQuote) {
+        CurveSegmentConfig[] memory segments = _launchConfigSegments[launchConfigId];
+        if (segments.length == 0) {
+            return (economics.graduationThreshold, economics.phantomQuote);
+        }
+        uint256 reserved = FullMath.mulDiv(
+            config.supply,
+            economics.phantomQuote,
+            economics.phantomQuote + economics.graduationThreshold
+        );
+        // The same rejection `LaunchCurve.initialize` makes, brought forward to where the
+        // creator still has their fee.
+        if (reserved == 0 || reserved >= config.supply) revert GraduationSeedNotViable();
+        (, quoteAtGraduation, seedPhantomQuote) =
+            LaunchCurveSegments.build(segments, config.supply, reserved, economics.phantomQuote);
+    }
+
+    /// @dev The virtual quote reserve graduation splits a curve's reserved allocation with.
+    ///      Read from the curve rather than recomputed here because the curve is the one
+    ///      contract that knows the shape it actually resolved.
+    ///
+    ///      Curves deployed before segmented curves existed have no such view, and their
+    ///      whole allocation is the single base segment, so their immutable phantom reserve
+    ///      is the answer. Probing rather than assuming keeps a launch that is already mid
+    ///      curve when this factory is upgraded graduating exactly as it would have.
+    function _graduationPhantomQuote(address curve) private view returns (uint256) {
+        (bool ok, bytes memory returned) =
+            curve.staticcall(abi.encodeWithSignature("graduationPhantomQuote()"));
+        if (ok && returned.length == 32) return abi.decode(returned, (uint256));
+        return LaunchCurve(curve).phantomQuote();
+    }
+
+    /// @dev The reserve `pairToken` is a brand of, and every per-brand condition a launch
+    ///      quoted in it has to meet, checked live on each read. Trust flows outward from the
+    ///      market factory: `reserveOfBrand` is the factory's own record, so a token it did
+    ///      not register is refused before anything the token says about itself is believed,
+    ///      and the reserve that record names must still be one the factory serves.
+    ///
+    ///      Registered THROUGH the market factory, not merely on the reserve, because
+    ///      graduation opens the market quoted in this very brand. A brand registered straight
+    ///      on the reserve leaves `reserveOfBrand` zero, and `AssetMarketFactory._record`
+    ///      would then stamp the factory's DEFAULT reserve into the market record — after
+    ///      which `MarketLens` quotes mints and redemptions against a reserve the brand is not
+    ///      pooled in.
+    ///
+    ///      The reserve is re-checked here, rather than only when its economics were written,
+    ///      because the owner may retire one afterwards with `setApprovedReservePool(pool,
+    ///      false)`. A launch created against a retired reserve trades normally, sweeps
+    ///      normally, and then fails `_resolveReserve` on every single `graduateToMarket`
+    ///      attempt — permanently pinned in Swept, with the owner's rescue as the only exit
+    ///      for money that belongs to its traders. Refused while the only thing at stake is
+    ///      the creator's unspent launch fee.
+    ///
+    ///      And the issuer must have agreed to share the float yield of the markets this
+    ///      brand quotes, by having their treasury name the market factory. Without it a
+    ///      graduated market would seed liquidity and earn nothing on it.
+    function _quoteReserve(address pairToken) private view returns (address reserve) {
+        reserve = marketFactory.reserveOfBrand(pairToken);
+        if (reserve == address(0)) revert PairTokenNotRegistered(pairToken, reserve);
+        if (
+            reserve != address(marketFactory.reservePool())
+                && !marketFactory.approvedReservePool(reserve)
+        ) revert ReserveNotApproved(reserve);
+        if (
+            PoolBrandTreasury(marketFactory.treasuryOfBrand(pairToken)).factory()
+                != address(marketFactory)
+        ) revert PairTokenFloatShareUnavailable(pairToken);
     }
 
     /// @dev Requires the brand to report `expectedDecimals`. Every brand here is a live
@@ -1287,16 +1590,18 @@ contract LaunchFactory is
         uint256 supply,
         uint256 phantomQuote,
         uint256 graduationThreshold,
-        int24 tickSpacing
+        int24 tickSpacing,
+        uint256 quoteAtGraduation,
+        uint256 seedPhantomQuote
     ) private view {
-        uint256 virtualQuote = phantomQuote + graduationThreshold;
-        uint256 reserved = FullMath.mulDiv(supply, phantomQuote, virtualQuote);
-        uint256 poolTokenAmount = FullMath.mulDiv(reserved, graduationThreshold, virtualQuote);
+        uint256 reserved = FullMath.mulDiv(supply, phantomQuote, phantomQuote + graduationThreshold);
+        uint256 poolTokenAmount =
+            FullMath.mulDiv(reserved, quoteAtGraduation, quoteAtGraduation + seedPhantomQuote);
         // Terms whose token side rounds away have nothing to seed with, and the price the
         // guard derives from a zero amount is undefined.
         if (poolTokenAmount == 0) revert GraduationSeedNotViable();
         graduationGuard.assertSeedableEitherOrdering(
-            tickSpacing, graduationThreshold, poolTokenAmount
+            tickSpacing, quoteAtGraduation, poolTokenAmount
         );
     }
 }

@@ -1,0 +1,1728 @@
+{
+  "chainId": 4663,
+  "block": 68544700,
+  "retrievedAt": "2026-09-21T05:25:01.118638+00:00",
+  "rpc": "https://rpc.mainnet.chain.robinhood.com",
+  "registry": "0x159A113E012593D9B3cC63ad45E30F0467e13Ef3",
+  "pools": [
+    {
+      "key": {
+        "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "currency1": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+        "fee": 8388608,
+        "tickSpacing": 10,
+        "hooks": "0x66622f77B797D506e5376F7798b67ab288966080"
+      },
+      "id": "0x7990aad9e8fb048f49a155a7df5603db0366f0657035b78eb4196395cccb3dcd",
+      "active": true,
+      "fee0For1": [
+        800
+      ],
+      "fee1For0": [
+        800
+      ],
+      "cap": [
+        8000
+      ],
+      "floor": [
+        300
+      ],
+      "asymmetry": {
+        "error": "Error: server returned an error response: error code 3: execution reverted, data: \"0x\""
+      },
+      "override": {
+        "error": "Error: could not decode output; did you specify the wrong function return data type?\n\nContext:\n- ABI decoding failed: buffer overrun while deserializing"
+      },
+      "treasuryBps": {
+        "error": "Error: server returned an error response: error code 3: execution reverted, data: \"0x\""
+      },
+      "calendar": [
+        [
+          1000,
+          800,
+          300,
+          5,
+          4000,
+          7200,
+          2200,
+          1800,
+          1800
+        ]
+      ],
+      "treasuryBpsLegacy": [
+        1000
+      ],
+      "overrideLegacy": [
+        0,
+        0
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x117cc2133c37B721F49dE2A7a74833232B3B4C0C",
+        "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "fee": 8388608,
+        "tickSpacing": 10,
+        "hooks": "0xA0E8fBFf13E24Af2b5e61A72800E08a161bDe080"
+      },
+      "id": "0x8674c1c5544f3c9563565b5d4bd5916701d90b3559b072acf7cef5b4fc5b8dcd",
+      "active": true,
+      "fee0For1": [
+        500
+      ],
+      "fee1For0": [
+        500
+      ],
+      "cap": [
+        8000
+      ],
+      "floor": [
+        250
+      ],
+      "asymmetry": {
+        "error": "Error: server returned an error response: error code 3: execution reverted, data: \"0x\""
+      },
+      "override": {
+        "error": "Error: could not decode output; did you specify the wrong function return data type?\n\nContext:\n- ABI decoding failed: buffer overrun while deserializing"
+      },
+      "treasuryBps": {
+        "error": "Error: server returned an error response: error code 3: execution reverted, data: \"0x\""
+      },
+      "calendar": [
+        [
+          800,
+          500,
+          250,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      "treasuryBpsLegacy": [
+        0
+      ],
+      "overrideLegacy": [
+        500,
+        1789997400
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x117cc2133c37B721F49dE2A7a74833232B3B4C0C",
+        "currency1": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+        "fee": 8388608,
+        "tickSpacing": 10,
+        "hooks": "0x79576FBAD6e83915630BBB5D5658483F05532080"
+      },
+      "id": "0x988f3b6ceec4795e0d6d28a054af87ffbcbdeee2566f72ae391da5f109bd485f",
+      "active": true,
+      "fee0For1": [
+        350
+      ],
+      "fee1For0": [
+        350
+      ],
+      "cap": [
+        8000
+      ],
+      "floor": [
+        300
+      ],
+      "asymmetry": {
+        "error": "Error: server returned an error response: error code 3: execution reverted, data: \"0x\""
+      },
+      "override": {
+        "error": "Error: could not decode output; did you specify the wrong function return data type?\n\nContext:\n- ABI decoding failed: buffer overrun while deserializing"
+      },
+      "treasuryBps": {
+        "error": "Error: server returned an error response: error code 3: execution reverted, data: \"0x\""
+      },
+      "calendar": [
+        [
+          500,
+          350,
+          300,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      "treasuryBpsLegacy": [
+        1000
+      ],
+      "overrideLegacy": [
+        0,
+        0
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "currency1": "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9",
+        "fee": 8388608,
+        "tickSpacing": 10,
+        "hooks": "0x70a9A88402989226847Ec122043CE5e7FF462080"
+      },
+      "id": "0xa2347ba69167e5602f74640ffbf737ee7cdd825e4726d3462564fc6533070147",
+      "active": true,
+      "fee0For1": [
+        350
+      ],
+      "fee1For0": [
+        350
+      ],
+      "cap": [
+        8000
+      ],
+      "floor": [
+        300
+      ],
+      "asymmetry": {
+        "error": "Error: server returned an error response: error code 3: execution reverted, data: \"0x\""
+      },
+      "override": {
+        "error": "Error: could not decode output; did you specify the wrong function return data type?\n\nContext:\n- ABI decoding failed: buffer overrun while deserializing"
+      },
+      "treasuryBps": {
+        "error": "Error: server returned an error response: error code 3: execution reverted, data: \"0x\""
+      },
+      "calendar": [
+        [
+          500,
+          350,
+          300,
+          8,
+          2800,
+          2700,
+          0,
+          0,
+          0
+        ]
+      ],
+      "treasuryBpsLegacy": [
+        1000
+      ],
+      "overrideLegacy": [
+        0,
+        0
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x322F0929c4625eD5bAd873c95208D54E1c003b2d",
+        "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "fee": 8388608,
+        "tickSpacing": 10,
+        "hooks": "0x67D86050d22D574Df046F3D90F722045F714e080"
+      },
+      "id": "0xd5effce87036cd858146c0c15fa825c231a9de1843200ca108e431e431331e8e",
+      "active": true,
+      "fee0For1": [
+        1500
+      ],
+      "fee1For0": [
+        1500
+      ],
+      "cap": [
+        10000
+      ],
+      "floor": [
+        400
+      ],
+      "asymmetry": {
+        "error": "Error: server returned an error response: error code 3: execution reverted, data: \"0x\""
+      },
+      "override": {
+        "error": "Error: could not decode output; did you specify the wrong function return data type?\n\nContext:\n- ABI decoding failed: buffer overrun while deserializing"
+      },
+      "treasuryBps": {
+        "error": "Error: server returned an error response: error code 3: execution reverted, data: \"0x\""
+      },
+      "calendar": [
+        [
+          900,
+          1500,
+          400,
+          3,
+          4000,
+          2700,
+          1600,
+          1800,
+          1800
+        ]
+      ],
+      "treasuryBpsLegacy": [
+        1000
+      ],
+      "overrideLegacy": [
+        1500,
+        1789529111
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x0000000000000000000000000000000000000000",
+        "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "fee": 8388608,
+        "tickSpacing": 10,
+        "hooks": "0x06a889870C8f83640D6816319f72e2aA579b6080"
+      },
+      "id": "0xbac3aa3b91584a53a579b3c999a56756e954e59247e497bad1d25a4334bde551",
+      "active": true,
+      "fee0For1": [
+        899
+      ],
+      "fee1For0": [
+        899
+      ],
+      "cap": [
+        6000
+      ],
+      "floor": [
+        100
+      ],
+      "asymmetry": {
+        "error": "Error: server returned an error response: error code 3: execution reverted, data: \"0x\""
+      },
+      "override": {
+        "error": "Error: could not decode output; did you specify the wrong function return data type?\n\nContext:\n- ABI decoding failed: buffer overrun while deserializing"
+      },
+      "treasuryBps": {
+        "error": "Error: server returned an error response: error code 3: execution reverted, data: \"0x\""
+      },
+      "calendar": {
+        "error": "Error: server returned an error response: error code 3: execution reverted, data: \"0x\""
+      },
+      "treasuryBpsLegacy": [
+        0
+      ],
+      "overrideLegacy": [
+        899,
+        1789975380
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "currency1": "0xC9a981FEE1F9DEc688bb123ccDeCc63D0deBFC4e",
+        "fee": 8388608,
+        "tickSpacing": 10,
+        "hooks": "0xB608a78761f179f7C56f15E7D13921B92F00a080"
+      },
+      "id": "0xfe281bbfa9aa658c1aa9c2ad1b0c62c4286f96c7cb1074296b54e869935a7a3a",
+      "active": true,
+      "fee0For1": [
+        2500
+      ],
+      "fee1For0": [
+        2500
+      ],
+      "cap": [
+        15000
+      ],
+      "floor": [
+        2500
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        3000,
+        3000,
+        1789112362
+      ],
+      "treasuryBps": {
+        "error": "Error: server returned an error response: error code 3: execution reverted, data: \"0x\""
+      },
+      "calendar": [
+        [
+          2500,
+          2500,
+          6000,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      "treasuryBpsLegacy": [
+        0
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x117cc2133c37B721F49dE2A7a74833232B3B4C0C",
+        "currency1": "0xC9a981FEE1F9DEc688bb123ccDeCc63D0deBFC4e",
+        "fee": 8388608,
+        "tickSpacing": 10,
+        "hooks": "0xA4570C37590E45f0b06898123D4de16307A32080"
+      },
+      "id": "0x118887805417a88865010dfe9ab3a516214e720aff2b01a19fcdb92b924c397f",
+      "active": true,
+      "fee0For1": [
+        350
+      ],
+      "fee1For0": [
+        350
+      ],
+      "cap": [
+        8000
+      ],
+      "floor": [
+        300
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        0,
+        0,
+        0
+      ],
+      "treasuryBps": {
+        "error": "Error: server returned an error response: error code 3: execution reverted, data: \"0x\""
+      },
+      "calendar": [
+        [
+          500,
+          350,
+          300,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      "treasuryBpsLegacy": [
+        1000
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "currency1": "0xc0D6457C16Cc70d6790Dd43521C899C87ce02f35",
+        "fee": 8388608,
+        "tickSpacing": 10,
+        "hooks": "0x8AF95932eC4484fb10C641a4cBcf19a798cB2080"
+      },
+      "id": "0x4ac4259eb99dce57268a856719d087fa1a53569b2fed6f330aabe32d9a4aa4f5",
+      "active": true,
+      "fee0For1": [
+        1200
+      ],
+      "fee1For0": [
+        1200
+      ],
+      "cap": [
+        8000
+      ],
+      "floor": [
+        450
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        1200,
+        1200,
+        1789739822
+      ],
+      "treasuryBps": {
+        "error": "Error: server returned an error response: error code 3: execution reverted, data: \"0x\""
+      },
+      "calendar": [
+        [
+          1200,
+          1200,
+          450,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      "treasuryBpsLegacy": [
+        1000
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x05a3d1Cd21d0C88145E82600E62e7E496e0F222B",
+        "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "fee": 8388608,
+        "tickSpacing": 60,
+        "hooks": "0x5Eb87F69bE00Df39981622Fd60A8De4b7837e080"
+      },
+      "id": "0x6ef20273e821b24ca2b27861d700db239c5449f6446c91d13d9c2bc01c7b8bb9",
+      "active": true,
+      "fee0For1": [
+        4050
+      ],
+      "fee1For0": [
+        3450
+      ],
+      "cap": [
+        30000
+      ],
+      "floor": [
+        3000
+      ],
+      "asymmetry": [
+        600,
+        true
+      ],
+      "override": [
+        0,
+        0,
+        0
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "calendar": [
+        [
+          3000,
+          3450,
+          3250,
+          5,
+          18500,
+          1800,
+          6000,
+          1800,
+          1800
+        ]
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x020bfC650A365f8BB26819deAAbF3E21291018b4",
+        "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "fee": 8388608,
+        "tickSpacing": 60,
+        "hooks": "0x08E52564Bad99E05a694b4809F397edcA417A080"
+      },
+      "id": "0x31608601d541e868706aa557558a4d4f99c57e6dd13bd3362edcf05d00a16212",
+      "active": true,
+      "fee0For1": [
+        3283
+      ],
+      "fee1For0": [
+        3127
+      ],
+      "cap": [
+        30000
+      ],
+      "floor": [
+        1600
+      ],
+      "asymmetry": [
+        156,
+        true
+      ],
+      "override": [
+        3283,
+        3127,
+        1789965444
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "flat": [
+        3127
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x0000000000000000000000000000000000000000",
+        "currency1": "0x05a3d1Cd21d0C88145E82600E62e7E496e0F222B",
+        "fee": 8388608,
+        "tickSpacing": 60,
+        "hooks": "0xcA89f079AF00f752bfD3C345358Dc38d4d73e080"
+      },
+      "id": "0x31f8624041c93e2abd0fb23540d259b069fa76c053eb7e3f5abc754d7194726b",
+      "active": true,
+      "fee0For1": [
+        1400
+      ],
+      "fee1For0": [
+        1400
+      ],
+      "cap": [
+        25000
+      ],
+      "floor": [
+        500
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        0,
+        0,
+        0
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "calendar": [
+        [
+          2000,
+          1400,
+          500,
+          5,
+          8000,
+          7200,
+          3500,
+          1800,
+          1800
+        ]
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x0000000000000000000000000000000000000000",
+        "currency1": "0x39dBED3a2bd333467115dE45665cC57F813C4571",
+        "fee": 8388608,
+        "tickSpacing": 60,
+        "hooks": "0x594e8e6281eDf2d363a0293a50004Cf868E7a080"
+      },
+      "id": "0xb59001413cb070e28433826f927b7265a0813213ba21f454d86896cee3cce674",
+      "active": true,
+      "fee0For1": [
+        3000
+      ],
+      "fee1For0": [
+        3000
+      ],
+      "cap": [
+        20000
+      ],
+      "floor": [
+        500
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        3000,
+        3000,
+        1789704010
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "flat": [
+        3000
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x12f190a9F9d7D37a250758b26824B97CE941bF54",
+        "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "fee": 8388608,
+        "tickSpacing": 60,
+        "hooks": "0x5Eb87F69bE00Df39981622Fd60A8De4b7837e080"
+      },
+      "id": "0x5619cb8420678b47997f20925eb01be8750c907d6226a0df5d7eafeff966346f",
+      "active": true,
+      "fee0For1": [
+        3150
+      ],
+      "fee1For0": [
+        3150
+      ],
+      "cap": [
+        30000
+      ],
+      "floor": [
+        3000
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        3150,
+        3150,
+        1788959679
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "calendar": [
+        [
+          3000,
+          3150,
+          3450,
+          5,
+          17000,
+          7200,
+          6000,
+          1800,
+          1800
+        ]
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "currency1": "0xCceE82fE024c36fA15E1005edE3E9e4787e23D09",
+        "fee": 8388608,
+        "tickSpacing": 60,
+        "hooks": "0x5Eb87F69bE00Df39981622Fd60A8De4b7837e080"
+      },
+      "id": "0x16dce5f6a91bd93c2f5f05866dbb780afbe47d2776ea8dcdbb758efff57248a7",
+      "active": true,
+      "fee0For1": [
+        3150
+      ],
+      "fee1For0": [
+        3150
+      ],
+      "cap": [
+        30000
+      ],
+      "floor": [
+        3000
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        0,
+        0,
+        0
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "calendar": [
+        [
+          3000,
+          3150,
+          3750,
+          5,
+          17000,
+          7200,
+          6000,
+          1800,
+          1800
+        ]
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x4a0E65A3EcceC6dBe60AE065F2e7bb85Fae35eEa",
+        "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "fee": 8388608,
+        "tickSpacing": 10,
+        "hooks": "0x5Eb87F69bE00Df39981622Fd60A8De4b7837e080"
+      },
+      "id": "0xb81d873dfb2bb1aaf08804053f8940fd06bb30a2b5a0fafcdbcc7325544452b9",
+      "active": true,
+      "fee0For1": [
+        500
+      ],
+      "fee1For0": [
+        500
+      ],
+      "cap": [
+        30000
+      ],
+      "floor": [
+        500
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        0,
+        0,
+        0
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "calendar": [
+        [
+          2000,
+          500,
+          500,
+          5,
+          3000,
+          1800,
+          2000,
+          1800,
+          1800
+        ]
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x39dBED3a2bd333467115dE45665cC57F813C4571",
+        "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "fee": 8388608,
+        "tickSpacing": 60,
+        "hooks": "0x08E52564Bad99E05a694b4809F397edcA417A080"
+      },
+      "id": "0x486435a1f76cd58193f854c6e6213cd05fd58d637865d02065ff558b387fa6ea",
+      "active": true,
+      "fee0For1": [
+        5674
+      ],
+      "fee1For0": [
+        3499
+      ],
+      "cap": [
+        30000
+      ],
+      "floor": [
+        1750
+      ],
+      "asymmetry": [
+        175,
+        true
+      ],
+      "override": [
+        5674,
+        3499,
+        1789974547
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "flat": [
+        3499
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x385F4f8ae47651ce5F58F5265395a669f8281e18",
+        "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "fee": 8388608,
+        "tickSpacing": 60,
+        "hooks": "0x08E52564Bad99E05a694b4809F397edcA417A080"
+      },
+      "id": "0x8660c1c24d58fdad98d9008be534240e5d79ece4d4d4ef16f215af001779ec1f",
+      "active": true,
+      "fee0For1": [
+        7993
+      ],
+      "fee1For0": [
+        12993
+      ],
+      "cap": [
+        40000
+      ],
+      "floor": [
+        4000
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        7993,
+        12993,
+        1789974339
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "flat": [
+        7993
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x1b0E319c6A659F002271B69dB8A7df2F911c153E",
+        "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "fee": 8388608,
+        "tickSpacing": 10,
+        "hooks": "0x08E52564Bad99E05a694b4809F397edcA417A080"
+      },
+      "id": "0xbb15d6b62c893a86912b5d4b14599f9cc72111e5898327dcadefa0352f20ae11",
+      "active": true,
+      "fee0For1": [
+        500
+      ],
+      "fee1For0": [
+        500
+      ],
+      "cap": [
+        20000
+      ],
+      "floor": [
+        300
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        500,
+        500,
+        1789079830
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "flat": [
+        500
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x1D11f0496982706C5e14A514D4E79F2e6BdE4516",
+        "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "fee": 8388608,
+        "tickSpacing": 20,
+        "hooks": "0x08E52564Bad99E05a694b4809F397edcA417A080"
+      },
+      "id": "0x01b71670a61dd9175a3d1e08d4e0af00ce71e76d230c92649f3ce9857f7d4abd",
+      "active": true,
+      "fee0For1": [
+        2396
+      ],
+      "fee1For0": [
+        2396
+      ],
+      "cap": [
+        50000
+      ],
+      "floor": [
+        1200
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        0,
+        0,
+        0
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "flat": [
+        2396
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x117cc2133c37B721F49dE2A7a74833232B3B4C0C",
+        "currency1": "0xD5f3879160bc7c32ebb4dC785F8a4F505888de68",
+        "fee": 8388608,
+        "tickSpacing": 1,
+        "hooks": "0x08E52564Bad99E05a694b4809F397edcA417A080"
+      },
+      "id": "0x422ed2d698601ea2114b103501e305ae7e3164f87079c72c626d2df832d74a0e",
+      "active": true,
+      "fee0For1": [
+        625
+      ],
+      "fee1For0": [
+        625
+      ],
+      "cap": [
+        3000
+      ],
+      "floor": [
+        300
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        500,
+        500,
+        1789963200
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "flat": [
+        625
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x0000000000000000000000000000000000000000",
+        "currency1": "0x2E8c31162b855A2ffa90F6F8634643Ad6F111e18",
+        "fee": 8388608,
+        "tickSpacing": 200,
+        "hooks": "0x594e8e6281eDf2d363a0293a50004Cf868E7a080"
+      },
+      "id": "0xe85f633a1374ee279140fa997b547d6a2ccd94fc5eae0e98f7d15ce0e3ddfa93",
+      "active": true,
+      "fee0For1": [
+        2700
+      ],
+      "fee1For0": [
+        2970
+      ],
+      "cap": [
+        20000
+      ],
+      "floor": [
+        1400
+      ],
+      "asymmetry": [
+        270,
+        false
+      ],
+      "override": [
+        2700,
+        2970,
+        1789895313
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "flat": [
+        2700
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "currency1": "0xE77d354898A44808ff3999947002785CD727BEd5",
+        "fee": 8388608,
+        "tickSpacing": 200,
+        "hooks": "0x08E52564Bad99E05a694b4809F397edcA417A080"
+      },
+      "id": "0xf7e180365aed9c463022976c37c615f483bfbe57717b665deff31922c877c8b3",
+      "active": true,
+      "fee0For1": [
+        10000
+      ],
+      "fee1For0": [
+        10000
+      ],
+      "cap": [
+        50000
+      ],
+      "floor": [
+        3000
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        0,
+        0,
+        0
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "flat": [
+        10000
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x4A72B9702f991b790788f8AFA9e7112541f4E8f8",
+        "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "fee": 8388608,
+        "tickSpacing": 60,
+        "hooks": "0x08E52564Bad99E05a694b4809F397edcA417A080"
+      },
+      "id": "0xd40585db9c332f3dcd82a77546c9670e38f82f06f18460eb3c4fca2adeda863e",
+      "active": true,
+      "fee0For1": [
+        21000
+      ],
+      "fee1For0": [
+        21000
+      ],
+      "cap": [
+        50000
+      ],
+      "floor": [
+        3000
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        0,
+        0,
+        0
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "flat": [
+        21000
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x2E8c31162b855A2ffa90F6F8634643Ad6F111e18",
+        "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "fee": 8388608,
+        "tickSpacing": 60,
+        "hooks": "0x08E52564Bad99E05a694b4809F397edcA417A080"
+      },
+      "id": "0x592e3fb7ea947506b36481025abc15baada8e1839a50fded46ecf08b3182fa96",
+      "active": true,
+      "fee0For1": [
+        2600
+      ],
+      "fee1For0": [
+        2600
+      ],
+      "cap": [
+        50000
+      ],
+      "floor": [
+        650
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        2600,
+        2600,
+        1789895159
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "flat": [
+        2600
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "currency1": "0xD9dB30BB0D2b8d2eae3826A1372117E058791e18",
+        "fee": 8388608,
+        "tickSpacing": 200,
+        "hooks": "0x08E52564Bad99E05a694b4809F397edcA417A080"
+      },
+      "id": "0x6b187fad6ca2dcb913f2451c5d5e24d3d77b9d09ce272c2c99f64dac672bc485",
+      "active": true,
+      "fee0For1": [
+        16000
+      ],
+      "fee1For0": [
+        16000
+      ],
+      "cap": [
+        50000
+      ],
+      "floor": [
+        4000
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        16000,
+        16000,
+        1789958602
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "flat": [
+        16000
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "currency1": "0x7dbf38976f6D3b9c529e7D9484A71898B409eE6a",
+        "fee": 8388608,
+        "tickSpacing": 200,
+        "hooks": "0x08E52564Bad99E05a694b4809F397edcA417A080"
+      },
+      "id": "0x4e2a7c0057cec67170ee71641d23d0e835afb6f1deb6b4c6a182b4c16ec8f594",
+      "active": true,
+      "fee0For1": [
+        16000
+      ],
+      "fee1For0": [
+        24000
+      ],
+      "cap": [
+        50000
+      ],
+      "floor": [
+        4000
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        16000,
+        24000,
+        1789971545
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "flat": [
+        16000
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x56910D4409F3a0C78C64DD8D0545FF0705389870",
+        "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "fee": 8388608,
+        "tickSpacing": 120,
+        "hooks": "0x08E52564Bad99E05a694b4809F397edcA417A080"
+      },
+      "id": "0x8fb2273e40a44bd4b442bf7f24b953e46a7ecae7384038b266008ae44ebe62be",
+      "active": true,
+      "fee0For1": [
+        6000
+      ],
+      "fee1For0": [
+        6000
+      ],
+      "cap": [
+        50000
+      ],
+      "floor": [
+        1500
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        6000,
+        6000,
+        1789844831
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "flat": [
+        6000
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "currency1": "0x812486EAea648819853F8E372dc9f1516C7868Bd",
+        "fee": 8388608,
+        "tickSpacing": 200,
+        "hooks": "0x08E52564Bad99E05a694b4809F397edcA417A080"
+      },
+      "id": "0x4aaa4f57bec2b6e67dac42909c8c4f9a6ddaf02bb63f8dcbbafb35316731d2a7",
+      "active": true,
+      "fee0For1": [
+        15000
+      ],
+      "fee1For0": [
+        22500
+      ],
+      "cap": [
+        50000
+      ],
+      "floor": [
+        3750
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        15000,
+        22500,
+        1789974940
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "flat": [
+        15000
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "currency1": "0xCEC185eB182c47d1bA1EFc84e6959e18cd620Be4",
+        "fee": 8388608,
+        "tickSpacing": 10,
+        "hooks": "0x08E52564Bad99E05a694b4809F397edcA417A080"
+      },
+      "id": "0xf50a897ae1b4dfdac5a8d573f0d0f59c75832b7832b7e631e1192d1e64019039",
+      "active": true,
+      "fee0For1": [
+        1200
+      ],
+      "fee1For0": [
+        1200
+      ],
+      "cap": [
+        50000
+      ],
+      "floor": [
+        300
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        0,
+        0,
+        0
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "flat": [
+        1200
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x0000000000000000000000000000000000000000",
+        "currency1": "0x020bfC650A365f8BB26819deAAbF3E21291018b4",
+        "fee": 8388608,
+        "tickSpacing": 60,
+        "hooks": "0x594e8e6281eDf2d363a0293a50004Cf868E7a080"
+      },
+      "id": "0x286f707c75266f4633638e557c6ada1bd4c58c3d533badb8c440a851f0940aa2",
+      "active": true,
+      "fee0For1": [
+        10000
+      ],
+      "fee1For0": [
+        10000
+      ],
+      "cap": [
+        50000
+      ],
+      "floor": [
+        2500
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        10000,
+        10000,
+        1789959376
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "flat": [
+        10000
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "currency1": "0xfF080c8ce2E5feadaCa0Da81314Ae59D232d4afD",
+        "fee": 8388608,
+        "tickSpacing": 60,
+        "hooks": "0x5Eb87F69bE00Df39981622Fd60A8De4b7837e080"
+      },
+      "id": "0x8e36bc9877b9383ae306dd937d40ab0e9df65811e7fdfb6bad25e7102bc398b2",
+      "active": true,
+      "fee0For1": [
+        2000
+      ],
+      "fee1For0": [
+        2000
+      ],
+      "cap": [
+        50000
+      ],
+      "floor": [
+        1000
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        0,
+        0,
+        0
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "calendar": [
+        [
+          3000,
+          2000,
+          1000,
+          5,
+          12000,
+          1800,
+          4000,
+          1800,
+          1800
+        ]
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x2D427692E928fa156ec22acfaBaFA0447C5805B7",
+        "currency1": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "fee": 8388608,
+        "tickSpacing": 60,
+        "hooks": "0x5Eb87F69bE00Df39981622Fd60A8De4b7837e080"
+      },
+      "id": "0x6948116f31d66206c10fc6aa6eff7e58842f2fb4dc32533f972a1cd50ed77e02",
+      "active": true,
+      "fee0For1": [
+        1700
+      ],
+      "fee1For0": [
+        1700
+      ],
+      "cap": [
+        50000
+      ],
+      "floor": [
+        900
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        0,
+        0,
+        0
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "calendar": [
+        [
+          2500,
+          1700,
+          900,
+          5,
+          11000,
+          1800,
+          3000,
+          1800,
+          1800
+        ]
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "currency1": "0xdF0992E440dD0be65BD8439b609d6D4366bf1CB5",
+        "fee": 8388608,
+        "tickSpacing": 60,
+        "hooks": "0x5Eb87F69bE00Df39981622Fd60A8De4b7837e080"
+      },
+      "id": "0xdb9c34002d173981250969293af6f43f42a26f2110f19893bbe2ad373375e9e6",
+      "active": true,
+      "fee0For1": [
+        1500
+      ],
+      "fee1For0": [
+        1500
+      ],
+      "cap": [
+        50000
+      ],
+      "floor": [
+        800
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        0,
+        0,
+        0
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "calendar": [
+        [
+          2200,
+          1500,
+          800,
+          5,
+          10000,
+          1800,
+          2600,
+          1800,
+          1800
+        ]
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "currency1": "0xec262a75e413fAfD0dF80480274532C79D42da09",
+        "fee": 8388608,
+        "tickSpacing": 60,
+        "hooks": "0x5Eb87F69bE00Df39981622Fd60A8De4b7837e080"
+      },
+      "id": "0xe1c3e133c917674bd51704e47c7dfe7f0d66375c89ceb30b083de95f9a1dc5ea",
+      "active": true,
+      "fee0For1": [
+        1500
+      ],
+      "fee1For0": [
+        1500
+      ],
+      "cap": [
+        50000
+      ],
+      "floor": [
+        800
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        800,
+        800,
+        1789875937
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "calendar": [
+        [
+          2200,
+          1500,
+          800,
+          5,
+          10000,
+          1800,
+          2600,
+          1800,
+          1800
+        ]
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
+        "currency1": "0xAa07A0e9209e16aC99708C3EC70159c6eF3128A3",
+        "fee": 8388608,
+        "tickSpacing": 200,
+        "hooks": "0x08E52564Bad99E05a694b4809F397edcA417A080"
+      },
+      "id": "0xc761f7de760d2b73cc3e3cc3d729916a4ed2f7fc6b0aa3872e2ced4258961e92",
+      "active": true,
+      "fee0For1": [
+        30000
+      ],
+      "fee1For0": [
+        30000
+      ],
+      "cap": [
+        50000
+      ],
+      "floor": [
+        7500
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        30000,
+        30000,
+        1789961968
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "flat": [
+        30000
+      ]
+    },
+    {
+      "key": {
+        "currency0": "0x00000000D61733e7A393A10A5B48c311AbE8f1E5",
+        "currency1": "0x4f11d7603D1B0D0f021Db552D8A6d88d7fa38ecf",
+        "fee": 8388608,
+        "tickSpacing": 1,
+        "hooks": "0x08E52564Bad99E05a694b4809F397edcA417A080"
+      },
+      "id": "0x29bb26f93fe1bbbf81ee62671cc2a66fbf318f20e6b0757607a2fe3713651fdf",
+      "active": true,
+      "fee0For1": [
+        500
+      ],
+      "fee1For0": [
+        500
+      ],
+      "cap": [
+        50000
+      ],
+      "floor": [
+        100
+      ],
+      "asymmetry": [
+        0,
+        false
+      ],
+      "override": [
+        0,
+        0,
+        0
+      ],
+      "treasuryBps": [
+        1000
+      ],
+      "flat": [
+        500
+      ]
+    }
+  ],
+  "roles": [
+    {
+      "hook": "0x08E52564Bad99E05a694b4809F397edcA417A080",
+      "function": "pokeFee(bytes32,uint24,uint24,uint40)",
+      "selector": "0x3f740010",
+      "role": [
+        1
+      ],
+      "keeperCanCall": [
+        true,
+        0
+      ],
+      "keeperAccess": [
+        1788120694,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "hook": "0x08E52564Bad99E05a694b4809F397edcA417A080",
+      "function": "clearPoke(bytes32)",
+      "selector": "0x5f4934a8",
+      "role": [
+        4
+      ],
+      "keeperCanCall": [
+        false,
+        0
+      ],
+      "keeperAccess": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "hook": "0x08E52564Bad99E05a694b4809F397edcA417A080",
+      "function": "setPoolConfig((address,address,uint24,int24,address),uint24,uint24,uint24)",
+      "selector": "0x4dc4b5c9",
+      "role": [
+        0
+      ],
+      "keeperCanCall": [
+        false,
+        0
+      ],
+      "keeperAccess": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "hook": "0x5Eb87F69bE00Df39981622Fd60A8De4b7837e080",
+      "function": "pokeFee(bytes32,uint24,uint24,uint40)",
+      "selector": "0x3f740010",
+      "role": [
+        1
+      ],
+      "keeperCanCall": [
+        true,
+        0
+      ],
+      "keeperAccess": [
+        1788120694,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "hook": "0x5Eb87F69bE00Df39981622Fd60A8De4b7837e080",
+      "function": "clearPoke(bytes32)",
+      "selector": "0x5f4934a8",
+      "role": [
+        4
+      ],
+      "keeperCanCall": [
+        false,
+        0
+      ],
+      "keeperAccess": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "hook": "0x5Eb87F69bE00Df39981622Fd60A8De4b7837e080",
+      "function": "setPoolConfig((address,address,uint24,int24,address),(uint24,uint24,uint24,uint8,uint24,uint32,uint24,uint32,uint32),uint24)",
+      "selector": "0xe8fe08b8",
+      "role": [
+        0
+      ],
+      "keeperCanCall": [
+        false,
+        0
+      ],
+      "keeperAccess": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

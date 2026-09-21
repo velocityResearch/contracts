@@ -70,6 +70,20 @@ read -r -d '' TARGETS <<'EOF'
 0x6f36300eA9486e7615f29EFA5C6eAC5Ee2bb5A4A	src/pool/BrandPsm.sol:BrandPsm
 0x1539CE28BD6837EFaA9EadEB8aa76669Fcef3f35	src/pool/BrandPsm.sol:BrandPsm
 0x61bCD58B76cb703AAD74cAa64B85D094dcb0554f	src/pool/BrandPsm.sol:BrandPsm
+# Release 2026-09-21: keeper LP fees + graduate into launch dollar (runbook 11k). The
+# implementations behind the three proxies and three beacons, the linked library, and the
+# three fresh launchpad modules. The AssetMarketFactory row is the cast-send deploy of the
+# built artifact, not the oversized forge-create one at 0xBD8D…09ED.
+0x77153c0482e393375F25cbdBfE47e204d22cF951	src/markets/AssetMarketFactory.sol:AssetMarketFactory
+0x1fd586D714F66c120aa258ce29671634Cff556bC	src/launchpad/LaunchFactory.sol:LaunchFactory
+0xfe4014D1ee20cC77349fAd24C1e9CeA69b03db03	src/markets/ProtocolFeeHook.sol:ProtocolFeeHook
+0x317d1C9319E461658F6716382Dcf81d0C39C8A77	src/pool/PoolBrandTreasury.sol:PoolBrandTreasury
+0x57f700f8AbC9FB73B9Ee6e5297304421f041065D	src/markets/BrandFeeVault.sol:BrandFeeVault
+0xCe9F3b9e864EDD05a64544B228c509E6Ff63fb44	src/markets/LpRewardDistributor.sol:LpRewardDistributor
+0xa4ea459Bb5f1dcE94231b57A9BC7DbdE5F1f342d	src/launchpad/libraries/LaunchGuardDeployer.sol:LaunchGuardDeployer
+0x27dA5A098ea5d8ef2a0c95Df5Dc79fe6E2440244	src/launchpad/LaunchLocker.sol:LaunchLocker
+0x254C5Ad46dFf09C5F2e646C3221B5125EDe649A9	src/launchpad/LaunchGraduation.sol:LaunchGraduation
+0x50571945e7CdBa099745A20Deb762deB81f81331	src/launchpad/LaunchDeployer.sol:LaunchDeployer
 EOF
 
 is_verified() {

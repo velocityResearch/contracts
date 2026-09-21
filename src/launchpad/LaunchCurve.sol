@@ -9,6 +9,11 @@ import {SafeERC20} from "@openzeppelin/token/ERC20/utils/SafeERC20.sol";
 
 import {LaunchCurveMath} from "./libraries/LaunchCurveMath.sol";
 import {
+    CurveSegment,
+    CurveSegmentConfig,
+    LaunchCurveSegments
+} from "./libraries/LaunchCurveSegments.sol";
+import {
     FeePolicySnapshot,
     ILaunchCurve,
     ILaunchFactory,
@@ -146,6 +151,17 @@ contract LaunchCurve is ReentrancyGuard, ILaunchCurve {
     // bundled buys are not eaten by the launch window's anti-bot pricing. Written only by the
     // factory during the launch transaction.
     mapping(address account => bool exempt) public snipeTaxExempt;
+    /// @notice Virtual quote reserve that reproduces this curve's terminal price against the
+    ///         real quote it holds at graduation. Equal to `phantomQuote` for an unsegmented
+    ///         curve; above it for a segmented one, because a steepened curve closes at a
+    ///         higher price than its opening reserves imply. `LaunchFactory` splits the
+    ///         reserved allocation between pool and locker with this, which is what keeps a
+    ///         graduated market opening at the price its curve closed at.
+    uint256 public graduationPhantomQuote;
+    // Resolved curve segments, written once at initialize and never afterwards. Always at
+    // least one: an unsegmented launch resolves to the single segment that reproduces the
+    // constant product this curve has always priced with.
+    CurveSegment[] private _segments;
 
     modifier onlyFactory() {
         if (msg.sender != factory) revert NotFactory();
@@ -210,6 +226,25 @@ contract LaunchCurve is ReentrancyGuard, ILaunchCurve {
     ///      point, so whichever one is used as the trigger, the graduated pool is seeded with
     ///      the same amounts at the same price on every launch.
     function initialize(address token_) external onlyFactory {
+        _initialize(token_, new CurveSegmentConfig[](0));
+    }
+
+    /// @notice Same, for a launch whose config declares a segmented curve. The declaration is
+    ///         relative — shares of the sellable allocation, and constant products relative to
+    ///         this curve's own — so the factory can carry one shape across every quote brand
+    ///         and this curve resolves it against the supply it actually minted.
+    /// @dev A separate overload rather than a widened signature: the single-argument form is
+    ///      what every launch deployed so far was wired with, and it stays the exact call the
+    ///      factory makes for an unsegmented config.
+    function initialize(address token_, CurveSegmentConfig[] calldata segments_)
+        external
+        onlyFactory
+    {
+        _initialize(token_, segments_);
+    }
+
+    /// @dev Shared body of both entrypoints. `segments_` empty is the unsegmented curve.
+    function _initialize(address token_, CurveSegmentConfig[] memory segments_) private {
         if (token != address(0)) revert AlreadyInitialized();
         if (token_ == address(0)) revert ZeroAddress();
         token = token_;
@@ -247,6 +282,18 @@ contract LaunchCurve is ReentrancyGuard, ILaunchCurve {
         // The allocation the curve actually received, which is the whole supply: the token
         // mints to this curve in its own constructor.
         trackedTokens = IERC20(token_).balanceOf(address(this));
+
+        // Resolved here rather than taken as a constructor argument for the same reason the
+        // reserved allocation is: the shape is declared in shares of a supply that does not
+        // exist until the token does. `build` re-validates the declaration rather than
+        // trusting the factory's own check, on the principle this contract already applies to
+        // the combined fee cap — the curve defends the invariants its pricing depends on.
+        (CurveSegment[] memory table,, uint256 terminalPhantomQuote) =
+            LaunchCurveSegments.build(segments_, supply, reserved, phantomQuote);
+        for (uint256 i = 0; i < table.length; ++i) {
+            _segments.push(table[i]);
+        }
+        graduationPhantomQuote = terminalPhantomQuote;
 
         emit Initialized(token_);
     }
@@ -297,9 +344,30 @@ contract LaunchCurve is ReentrancyGuard, ILaunchCurve {
     }
 
     /// @notice Returns the curve's current tradeable reserves, excluding fees pending sweep.
+    ///         The quote side is the reserve the *next buy* prices against, which on a
+    ///         segmented curve is the active segment's virtual reserve plus the real quote
+    ///         raised since that segment opened. An unsegmented curve has one segment whose
+    ///         virtual reserve is `phantomQuote` and whose mark is zero, so this is exactly
+    ///         `phantomQuote + realQuoteReserve()` as it has always been.
     function getReserves() public view returns (uint256 quoteReserve_, uint256 tokenReserve_) {
-        quoteReserve_ = phantomQuote + trackedQuote - quoteFeeBalance - creatorTaxBalance;
         tokenReserve_ = trackedTokens;
+        uint256 netQuote = trackedQuote - quoteFeeBalance - creatorTaxBalance;
+        // Before `initialize` there is no resolved table yet and no supply to price against;
+        // report the opening reserves rather than reverting a view.
+        quoteReserve_ = _segments.length == 0
+            ? phantomQuote + netQuote
+            : _segmentQuoteReserve(_segmentFor(tokenReserve_, false), netQuote);
+    }
+
+    /// @notice Number of segments this curve's sellable allocation is split into. One for an
+    ///         unsegmented launch.
+    function segmentCount() external view returns (uint256) {
+        return _segments.length;
+    }
+
+    /// @notice The resolved segment at `index`, in the order the curve sells through them.
+    function getSegment(uint256 index) external view returns (CurveSegment memory) {
+        return _segments[index];
     }
 
     /// @notice Tradeable quote reserve only, phantom included.
@@ -369,9 +437,8 @@ contract LaunchCurve is ReentrancyGuard, ILaunchCurve {
         view
         returns (uint256 spent, uint256 tokensOut, uint256 fee, uint256 tax, uint256 snipeTax)
     {
-        uint256 quoteReserveBefore =
-            phantomQuote + trackedQuote - quoteFeeBalance - creatorTaxBalance;
         uint256 tokenReserveBefore = trackedTokens;
+        uint256 netQuote = trackedQuote - quoteFeeBalance - creatorTaxBalance;
         uint256 sellable =
             tokenReserveBefore > reservedTokens ? tokenReserveBefore - reservedTokens : 0;
         if (sellable == 0) revert CurveGraduated();
@@ -391,16 +458,17 @@ contract LaunchCurve is ReentrancyGuard, ILaunchCurve {
         fee = (spent * feeBps) / BASIS_POINTS;
         tax = (spent * creatorTaxBps) / BASIS_POINTS;
         snipeTax = (spent * snipeTaxBps) / BASIS_POINTS;
-        tokensOut = LaunchCurveMath.getAmountOut(
-            spent - fee - tax - snipeTax, quoteReserveBefore, tokenReserveBefore, 0
-        );
+        bool clamped;
+        (tokensOut, clamped) =
+            _buyAmountOut(spent - fee - tax - snipeTax, tokenReserveBefore, netQuote);
 
-        if (tokensOut > sellable) {
-            tokensOut = sellable;
+        if (clamped) {
+            // `tokensOut` is the whole sellable allocation here: the walk stops at the
+            // reserved floor and reports that it had input left over.
+            //
             // Price the clamped fill from the token side, then gross the result back up so
             // the fee legs still come out of the input.
-            uint256 net =
-                LaunchCurveMath.getAmountIn(sellable, quoteReserveBefore, tokenReserveBefore, 0);
+            uint256 net = _buyAmountIn(tokensOut, tokenReserveBefore, netQuote);
             spent = Math.min(
                 Math.mulDiv(
                     net,
@@ -423,12 +491,154 @@ contract LaunchCurve is ReentrancyGuard, ILaunchCurve {
         view
         returns (uint256 quoteOut, uint256 fee, uint256 tax)
     {
-        (uint256 quoteReserveBefore, uint256 tokenReserveBefore) = getReserves();
-        uint256 grossQuoteOut =
-            LaunchCurveMath.getAmountOut(tokensIn, tokenReserveBefore, quoteReserveBefore, 0);
+        uint256 grossQuoteOut = _sellAmountOut(
+            tokensIn, trackedTokens, trackedQuote - quoteFeeBalance - creatorTaxBalance
+        );
         fee = (grossQuoteOut * feeBps) / BASIS_POINTS;
         tax = (grossQuoteOut * creatorTaxBps) / BASIS_POINTS;
         quoteOut = grossQuoteOut - fee - tax;
+    }
+
+    // ─── Segment walks ───────────────────────────────────────────────────
+    //
+    // Only the quote side of the curve is segmented. The token reserve is one continuous
+    // axis, and a segment is the band of it running from the previous segment's floor down
+    // to its own; within a band the curve is the same constant product it has always been,
+    // priced against that band's virtual reserve plus the real quote taken in since the band
+    // opened. A trade that runs out of band continues into the next one with what is left,
+    // in the same call, so a quote and its fill are the same walk.
+    //
+    // Buys and sells cross a boundary at the same token reserve and in opposite directions
+    // over the same bands, which is what makes a round trip exactly reversible: everything a
+    // buy pays on the way down, a sell gives back on the way up, minus the rounding each leg
+    // leaves behind in the curve's favour. That symmetry, not the shape of the price step, is
+    // what stops a boundary from being arbitrageable.
+
+    /// @dev The segment the token reserve `tokenReserveNow` trades in. A boundary belongs to
+    ///      the band the trade is moving into: a buy at exactly a floor opens the next
+    ///      (steeper) band, a sell at exactly a floor re-enters the previous (cheaper) one.
+    ///      Both readings price the trade against the side of the boundary that favours the
+    ///      curve.
+    function _segmentFor(uint256 tokenReserveNow, bool selling)
+        private
+        view
+        returns (uint256 index)
+    {
+        uint256 last = _segments.length - 1;
+        for (index = 0; index < last; ++index) {
+            uint256 floor_ = _segments[index].tokenFloor;
+            if (selling ? floor_ <= tokenReserveNow : floor_ < tokenReserveNow) return index;
+        }
+    }
+
+    /// @dev Quote reserve segment `index` prices against, given the curve's net real quote.
+    function _segmentQuoteReserve(uint256 index, uint256 netQuote) private view returns (uint256) {
+        CurveSegment storage segment = _segments[index];
+        return segment.phantomQuote + netQuote - segment.quoteMark;
+    }
+
+    /// @dev Tokens `amountIn` of net quote buys, walking as many segments as it reaches.
+    /// @return tokensOut Tokens the walk dispensed, never more than the sellable allocation.
+    /// @return clamped True when the input was more than the whole remaining allocation could
+    ///         absorb, which is the caller's signal to reprice the fill from the token side
+    ///         and refund the difference.
+    function _buyAmountOut(uint256 amountIn, uint256 tokenReserveNow, uint256 netQuote)
+        private
+        view
+        returns (uint256 tokensOut, bool clamped)
+    {
+        uint256 index = _segmentFor(tokenReserveNow, false);
+        uint256 last = _segments.length - 1;
+        uint256 remaining = amountIn;
+
+        while (true) {
+            CurveSegment memory segment = _segments[index];
+            uint256 quote = segment.phantomQuote + netQuote - segment.quoteMark;
+            uint256 capacity = tokenReserveNow - segment.tokenFloor;
+            // The first leg keeps the unsegmented rejections — an empty input, or one priced
+            // so small it buys nothing, is still an error rather than a zero-token fill. A
+            // later leg's leftovers are dust by construction, so they are absorbed instead of
+            // taking the whole trade down.
+            uint256 out = tokensOut == 0
+                ? LaunchCurveMath.getAmountOut(remaining, quote, tokenReserveNow, 0)
+                : LaunchCurveMath.quoteAmountOut(remaining, quote, tokenReserveNow, 0);
+            if (out <= capacity) return (tokensOut + out, false);
+
+            tokensOut += capacity;
+            if (index == last) return (tokensOut, true);
+
+            // `out > capacity` is exactly the statement that `remaining` exceeds the input
+            // this band needs to be bought out whole, so the subtraction cannot underflow.
+            uint256 consumed = LaunchCurveMath.getAmountIn(capacity, quote, tokenReserveNow, 0);
+            remaining -= consumed;
+            netQuote += consumed;
+            tokenReserveNow = segment.tokenFloor;
+            ++index;
+            if (remaining == 0) return (tokensOut, false);
+        }
+    }
+
+    /// @dev Net quote required to buy exactly `tokensOut` tokens, walking the same boundaries
+    ///      `_buyAmountOut` would.
+    function _buyAmountIn(uint256 tokensOut, uint256 tokenReserveNow, uint256 netQuote)
+        private
+        view
+        returns (uint256 amountIn)
+    {
+        uint256 index = _segmentFor(tokenReserveNow, false);
+        uint256 remaining = tokensOut;
+
+        while (remaining != 0) {
+            CurveSegment memory segment = _segments[index];
+            uint256 quote = segment.phantomQuote + netQuote - segment.quoteMark;
+            uint256 capacity = tokenReserveNow - segment.tokenFloor;
+            uint256 take = remaining < capacity ? remaining : capacity;
+            uint256 needed = LaunchCurveMath.getAmountIn(take, quote, tokenReserveNow, 0);
+            amountIn += needed;
+            netQuote += needed;
+            remaining -= take;
+            tokenReserveNow -= take;
+            ++index;
+        }
+    }
+
+    /// @dev Gross quote `tokensIn` sells for, walking back up through as many segments as it
+    ///      reaches. The token reserve can never rise above the launch supply — the only
+    ///      tokens anyone can sell are the ones the curve dispensed — so the first segment
+    ///      always has room for whatever is left when the walk gets there.
+    function _sellAmountOut(uint256 tokensIn, uint256 tokenReserveNow, uint256 netQuote)
+        private
+        view
+        returns (uint256 quoteOut)
+    {
+        uint256 index = _segmentFor(tokenReserveNow, true);
+        uint256 remaining = tokensIn;
+
+        while (true) {
+            CurveSegment memory segment = _segments[index];
+            uint256 quote = segment.phantomQuote + netQuote - segment.quoteMark;
+            uint256 ceiling = index == 0 ? launchSupply : _segments[index - 1].tokenFloor;
+            uint256 headroom = ceiling - tokenReserveNow;
+
+            if (index == 0 || remaining <= headroom) {
+                uint256 out = quoteOut == 0
+                    ? LaunchCurveMath.getAmountOut(remaining, tokenReserveNow, quote, 0)
+                    : LaunchCurveMath.quoteAmountOut(remaining, tokenReserveNow, quote, 0);
+                return quoteOut + out;
+            }
+
+            // Filling a band's headroom can never take out more quote than the band's own
+            // virtual reserve, so the running net quote stays at or above this band's mark
+            // and the next iteration's subtraction is safe.
+            uint256 bandOut = quoteOut == 0
+                ? LaunchCurveMath.getAmountOut(headroom, tokenReserveNow, quote, 0)
+                : LaunchCurveMath.quoteAmountOut(headroom, tokenReserveNow, quote, 0);
+            quoteOut += bandOut;
+            netQuote -= bandOut;
+            remaining -= headroom;
+            tokenReserveNow = ceiling;
+            --index;
+        }
     }
 
     // ─── Trading ─────────────────────────────────────────────────────────

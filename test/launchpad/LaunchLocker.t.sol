@@ -9,7 +9,6 @@ import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 
 import {AssetMarketFactory} from "../../src/markets/AssetMarketFactory.sol";
-import {BrandFeeVault} from "../../src/markets/BrandFeeVault.sol";
 import {LpRewardDistributor} from "../../src/markets/LpRewardDistributor.sol";
 import {LaunchLocker} from "../../src/launchpad/LaunchLocker.sol";
 import {ILaunchFactory, ILaunchLocker} from "../../src/launchpad/interfaces/ILaunchpad.sol";
@@ -19,15 +18,15 @@ import {LaunchpadFixture} from "./LaunchpadFixture.sol";
 /// @title LaunchLockerTest
 /// @notice What the locked position earns and where it goes, and what the locker can never
 ///         do. A launch is taken all the way to a market in `setUp`, so the position under
-///         test is the real graduation seed staked in a real distributor: the swap fees are
-///         the pool's own arithmetic and the reward is a real `BrandFeeVault.sweep`.
+///         test is the real graduation seed staked in a real distributor and every figure
+///         here is the pool's own fee arithmetic. There is no reward leg: recording the
+///         position renounces the stream that rides alongside it.
 contract LaunchLockerTest is LaunchpadFixture {
     address token;
     address unit;
     uint256 marketId;
     uint256 positionId;
     LpRewardDistributor dist;
-    BrandFeeVault vault;
     uint256 creatorShareBps;
 
     function setUp() public {
@@ -40,13 +39,11 @@ contract LaunchLockerTest is LaunchpadFixture {
         AssetMarketFactory.Market memory m = marketFactory.market(marketId);
         unit = m.brandToken;
         dist = LpRewardDistributor(m.lpDistributor);
-        vault = BrandFeeVault(m.feeVault);
 
         ILaunchLocker.LockedPosition memory p = locker.lockedPosition(token);
         positionId = p.tokenId;
         creatorShareBps = p.creatorShareBps;
         assertEq(creatorShareBps, 4_000, "the shipped fee split: 40% of the fee leg is theirs");
-        assertEq(launchFactory.graduatedCreatorYieldShareBps(), 4_000, "and 40% of the yield");
         assertEq(launchFactory.graduatedLpFundShareBps(), 0, "the LP fund leg ships off");
     }
 
@@ -69,82 +66,46 @@ contract LaunchLockerTest is LaunchpadFixture {
         _swapInMarket(marketId, trader, token, bought);
     }
 
-    /// @dev Stream a reward to the position: fund the market's vault as harvested float
-    ///      would, sweep it into the distributor, and let the whole period elapse.
-    function _streamReward(uint256 amount) internal {
-        usdg.mint(address(vault), amount);
-        vault.sweep();
-        vm.warp(dist.periodFinish());
-    }
-
     // ─── Collecting ──────────────────────────────────────────────────────
+    //
+    // The unit IS the launch's own quote brand, so the escrow already holds the curve's fees
+    // in it before the market has traded once. Every unit-side figure below is therefore a
+    // delta across the collect rather than a total.
 
     function test_collect_splitsTheFeeLegOnTheSnapshottedRate() public {
         _tradeBothWays(1_000e6);
 
-        // No reward has been streamed, so the reward leg has nothing and must not get in
-        // the way of the fee leg.
-        assertEq(dist.earned(address(locker)), 0, "no float yet");
-
-        (uint256 unitOut, uint256 tokenOut, uint256 yieldOut) = locker.collect(token);
+        uint256 creatorUnitBefore = feeEscrow.balanceOfToken(creatorFeeRecipient, unit);
+        uint256 protocolUnitBefore = feeEscrow.balanceOfToken(protocolFeeRecipient, unit);
+        (uint256 unitOut, uint256 tokenOut) = locker.collect(token);
         assertGt(unitOut, 0, "fees on the unit side");
         assertGt(tokenOut, 0, "fees on the token side");
-        assertEq(yieldOut, 0, "and nothing from the float stream");
 
         // Both currencies split on the rate the launch was sold, with the protocol taking
         // the remainder because the LP fund leg is off.
         uint256 unitToCreator = unitOut * 4_000 / 10_000;
         uint256 tokenToCreator = tokenOut * 4_000 / 10_000;
-        assertEq(feeEscrow.balanceOfToken(creatorFeeRecipient, unit), unitToCreator);
+        assertEq(
+            feeEscrow.balanceOfToken(creatorFeeRecipient, unit) - creatorUnitBefore, unitToCreator
+        );
         assertEq(feeEscrow.balanceOfToken(creatorFeeRecipient, token), tokenToCreator);
-        assertEq(feeEscrow.balanceOfToken(protocolFeeRecipient, unit), unitOut - unitToCreator);
+        assertEq(
+            feeEscrow.balanceOfToken(protocolFeeRecipient, unit) - protocolUnitBefore,
+            unitOut - unitToCreator
+        );
         assertEq(feeEscrow.balanceOfToken(protocolFeeRecipient, token), tokenOut - tokenToCreator);
 
         // The escrow is a pull ledger: the creator can take it from there.
         vm.prank(creatorFeeRecipient);
-        assertEq(feeEscrow.claimToken(unit), unitToCreator);
-        assertEq(IERC20(unit).balanceOf(creatorFeeRecipient), unitToCreator);
-    }
-
-    /// @notice The float yield is the reserve's earning rather than the launch's, so it is
-    ///         split on its own rate rather than on the position's snapshotted one.
-    function test_collect_splitsTheFloatYieldOnItsOwnRate() public {
-        uint256 reward = 10_000e6;
-        _streamReward(reward);
-
-        (uint256 unitOut, uint256 tokenOut, uint256 yieldOut) = locker.collect(token);
-        assertEq(tokenOut, 0, "no trades, no token-side fees");
-        // The locked position is the pool's only stake, so the whole stream is its, less
-        // the accumulator's rounding.
-        assertApproxEqAbs(unitOut, reward, 1e3, "the whole reward");
-        assertEq(yieldOut, unitOut, "all of which came from the stream, not from fees");
-
-        uint256 toCreator = yieldOut * 4_000 / 10_000;
-        assertEq(feeEscrow.balanceOfToken(creatorFeeRecipient, unit), toCreator);
-        assertEq(feeEscrow.balanceOfToken(protocolFeeRecipient, unit), yieldOut - toCreator);
-    }
-
-    /// @notice The yield rate is read live at every collect, so a change reaches a position
-    ///         that graduated before it — the property the snapshotted fee share
-    ///         deliberately does not have.
-    function test_collect_paysTheFloatYieldByTheRateSetAfterGraduation() public {
-        vm.prank(owner);
-        launchFactory.setGraduatedCreatorYieldShareBps(6_000);
-
-        _streamReward(10_000e6);
-        (,, uint256 yieldOut) = locker.collect(token);
-        assertGt(yieldOut, 0, "the stream paid");
-
-        uint256 toCreator = yieldOut * 6_000 / 10_000;
-        assertEq(feeEscrow.balanceOfToken(creatorFeeRecipient, unit), toCreator);
-        assertEq(feeEscrow.balanceOfToken(protocolFeeRecipient, unit), yieldOut - toCreator);
+        assertEq(feeEscrow.claimToken(unit), creatorUnitBefore + unitToCreator);
+        assertEq(IERC20(unit).balanceOf(creatorFeeRecipient), creatorUnitBefore + unitToCreator);
     }
 
     /// @notice The LP fund's cut comes out of the PROTOCOL's remainder, never the creator's.
     ///         That is the property that makes the rate safe to read live and to apply to a
     ///         position that graduated before the fund existed: turning it on cannot reprice
     ///         a term the creator was sold. Asserted by comparing the creator's take against
-    ///         the same trade with the leg off, which the two tests above pin.
+    ///         the same trade with the leg off, which the test above pins.
     function test_collect_paysTheLpFundOutOfTheProtocolsShare() public {
         address lpFund = address(0x11FD);
         vm.startPrank(owner);
@@ -153,40 +114,35 @@ contract LaunchLockerTest is LaunchpadFixture {
         vm.stopPrank();
 
         _tradeBothWays(2_000e6);
-        _streamReward(5_000e6);
-        (uint256 unitOut, uint256 tokenOut, uint256 yieldOut) = locker.collect(token);
-        uint256 feeUnit = unitOut - yieldOut;
-        assertGt(feeUnit, 0, "unit-side swap fees");
+        uint256 creatorUnitBefore = feeEscrow.balanceOfToken(creatorFeeRecipient, unit);
+        uint256 protocolUnitBefore = feeEscrow.balanceOfToken(protocolFeeRecipient, unit);
+        (uint256 unitOut, uint256 tokenOut) = locker.collect(token);
+        assertGt(unitOut, 0, "unit-side swap fees");
         assertGt(tokenOut, 0, "token-side swap fees");
-        assertGt(yieldOut, 0, "and a streamed reward");
 
-        // 40% of each leg, exactly what the leg-off tests pay.
-        uint256 unitFeesToCreator = feeUnit * 4_000 / 10_000;
-        uint256 yieldToCreator = yieldOut * 4_000 / 10_000;
+        // 40% of each leg, exactly what the leg-off test pays.
+        uint256 unitToCreator = unitOut * 4_000 / 10_000;
         uint256 tokenToCreator = tokenOut * 4_000 / 10_000;
         // 30% of each leg.
-        uint256 unitFeesToLpFund = feeUnit * 3_000 / 10_000;
-        uint256 yieldToLpFund = yieldOut * 3_000 / 10_000;
+        uint256 unitToLpFund = unitOut * 3_000 / 10_000;
         uint256 tokenToLpFund = tokenOut * 3_000 / 10_000;
 
         assertEq(
-            feeEscrow.balanceOfToken(creatorFeeRecipient, unit),
-            unitFeesToCreator + yieldToCreator,
+            feeEscrow.balanceOfToken(creatorFeeRecipient, unit) - creatorUnitBefore,
+            unitToCreator,
             "the creator is untouched by the fund"
         );
+        assertEq(feeEscrow.balanceOfToken(creatorFeeRecipient, token), tokenToCreator);
         assertEq(
-            feeEscrow.balanceOfToken(lpFund, unit),
-            unitFeesToLpFund + yieldToLpFund,
-            "the fund takes 30% of both unit legs"
+            feeEscrow.balanceOfToken(lpFund, unit), unitToLpFund, "the fund takes 30% of the unit"
         );
         assertEq(feeEscrow.balanceOfToken(lpFund, token), tokenToLpFund, "and of the token leg");
-        assertEq(feeEscrow.balanceOfToken(creatorFeeRecipient, token), tokenToCreator);
 
         // The protocol is diluted by exactly the fund's take, and every asset still adds up.
         assertEq(
-            feeEscrow.balanceOfToken(creatorFeeRecipient, unit)
+            feeEscrow.balanceOfToken(creatorFeeRecipient, unit) - creatorUnitBefore
                 + feeEscrow.balanceOfToken(lpFund, unit)
-                + feeEscrow.balanceOfToken(protocolFeeRecipient, unit),
+                + feeEscrow.balanceOfToken(protocolFeeRecipient, unit) - protocolUnitBefore,
             unitOut,
             "the unit legs sum to what arrived"
         );
@@ -199,35 +155,28 @@ contract LaunchLockerTest is LaunchpadFixture {
         );
     }
 
-    function test_collect_splitsFeesAndYieldOnTheirOwnRatesAndKeepsNothing() public {
-        vm.prank(owner);
-        launchFactory.setGraduatedCreatorYieldShareBps(2_500);
-
+    /// @notice Everything collected is credited out in the same call: the locker ends holding
+    ///         nothing but the locked supply, grants no standing allowance over it, and a
+    ///         second collect with no trade in between finds nothing.
+    function test_collect_keepsNothingAndASecondCollectFindsNothing() public {
         _tradeBothWays(2_000e6);
-        _streamReward(5_000e6);
 
         uint256 unitBefore = IERC20(unit).balanceOf(address(locker));
         uint256 tokenBefore = IERC20(token).balanceOf(address(locker));
-        (uint256 unitOut, uint256 tokenOut, uint256 yieldOut) = locker.collect(token);
+        uint256 creatorUnitBefore = feeEscrow.balanceOfToken(creatorFeeRecipient, unit);
+        uint256 protocolUnitBefore = feeEscrow.balanceOfToken(protocolFeeRecipient, unit);
+        (uint256 unitOut, uint256 tokenOut) = locker.collect(token);
+        assertGt(unitOut, 0, "unit-side swap fees");
+        assertGt(tokenOut, 0, "token-side swap fees");
 
-        // Both legs arrive in the unit in the same call; what makes them two is that they
-        // are paid on two rates.
-        uint256 feeUnit = unitOut - yieldOut;
-        assertGt(feeUnit, 0, "unit-side swap fees");
-        assertGt(yieldOut, 5_000e6 - 1e3, "and the whole streamed reward");
-        assertGt(tokenOut, 0);
-
-        uint256 unitFeesToCreator = feeUnit * 4_000 / 10_000;
-        uint256 yieldToCreator = yieldOut * 2_500 / 10_000;
+        uint256 unitToCreator = unitOut * 4_000 / 10_000;
         assertEq(
-            feeEscrow.balanceOfToken(creatorFeeRecipient, unit),
-            unitFeesToCreator + yieldToCreator,
-            "40% of the fee leg plus a quarter of the yield"
+            feeEscrow.balanceOfToken(creatorFeeRecipient, unit) - creatorUnitBefore, unitToCreator
         );
         assertEq(
-            feeEscrow.balanceOfToken(protocolFeeRecipient, unit),
-            unitOut - unitFeesToCreator - yieldToCreator,
-            "and the protocol takes the remainder of both"
+            feeEscrow.balanceOfToken(protocolFeeRecipient, unit) - protocolUnitBefore,
+            unitOut - unitToCreator,
+            "the protocol takes the remainder"
         );
         assertEq(feeEscrow.balanceOfToken(creatorFeeRecipient, token), tokenOut * 4_000 / 10_000);
 
@@ -237,10 +186,9 @@ contract LaunchLockerTest is LaunchpadFixture {
         assertEq(IERC20(token).allowance(address(locker), address(feeEscrow)), 0);
 
         // A second collect finds nothing new and credits nothing.
-        (unitOut, tokenOut, yieldOut) = locker.collect(token);
+        (unitOut, tokenOut) = locker.collect(token);
         assertEq(unitOut, 0);
         assertEq(tokenOut, 0);
-        assertEq(yieldOut, 0);
     }
 
     /// @notice The creator recipient is whatever the factory says at collect time. A
@@ -255,14 +203,19 @@ contract LaunchLockerTest is LaunchpadFixture {
         assertEq(launchFactory.creatorFeeRecipientOf(token), heir);
 
         _tradeBothWays(1_000e6);
-        (uint256 unitOut,,) = locker.collect(token);
+        uint256 oldRecipientBefore = feeEscrow.balanceOfToken(creatorFeeRecipient, unit);
+        (uint256 unitOut,) = locker.collect(token);
 
         assertEq(
             feeEscrow.balanceOfToken(heir, unit),
             unitOut * 4_000 / 10_000,
             "the creator's 40% of the fee leg"
         );
-        assertEq(feeEscrow.balanceOfToken(creatorFeeRecipient, unit), 0, "the old one got nothing");
+        assertEq(
+            feeEscrow.balanceOfToken(creatorFeeRecipient, unit),
+            oldRecipientBefore,
+            "the old one got nothing new"
+        );
         assertEq(
             locker.lockedPosition(token).creatorFeeRecipient,
             creatorFeeRecipient,
@@ -275,13 +228,17 @@ contract LaunchLockerTest is LaunchpadFixture {
         vm.prank(owner);
         launchFactory.setProtocolFeeRecipient(treasury2);
 
-        // The protocol's leg of a default market is the yield, so stream one.
-        _streamReward(1_000e6);
-        (,, uint256 yieldOut) = locker.collect(token);
-        assertGt(yieldOut, 0, "the stream paid");
+        _tradeBothWays(1_000e6);
+        uint256 oldRecipientBefore = feeEscrow.balanceOfToken(protocolFeeRecipient, unit);
+        (uint256 unitOut,) = locker.collect(token);
+        assertGt(unitOut, 0, "the position earned");
 
-        assertEq(feeEscrow.balanceOfToken(treasury2, unit), yieldOut - yieldOut * 4_000 / 10_000);
-        assertEq(feeEscrow.balanceOfToken(protocolFeeRecipient, unit), 0);
+        assertEq(feeEscrow.balanceOfToken(treasury2, unit), unitOut - unitOut * 4_000 / 10_000);
+        assertEq(
+            feeEscrow.balanceOfToken(protocolFeeRecipient, unit),
+            oldRecipientBefore,
+            "the old one got nothing new"
+        );
     }
 
     function test_collect_onATokenThatNeverGraduatedReverts() public {
@@ -299,7 +256,6 @@ contract LaunchLockerTest is LaunchpadFixture {
         uint128 liquidity = posm.getPositionLiquidity(positionId);
 
         _tradeBothWays(3_000e6);
-        _streamReward(1_000e6);
         locker.collect(token);
         _tradeBothWays(500e6);
         locker.collect(token);
@@ -349,9 +305,16 @@ contract LaunchLockerTest is LaunchpadFixture {
         vm.stopPrank();
     }
 
+    /// @dev The sizes here are a hundredth of the seed rather than the token-round figures
+    ///      this used to mint. Recording the seed renounces its stream, and a renunciation
+    ///      sets `LpRewardDistributor.minStakeWeight` to one basis point of the weight it
+    ///      gave up — so a stake from anybody else has to be a real position in this market
+    ///      before it can reach the locker check this test is actually about. The old figure
+    ///      minted a fixed 1e9 of liquidity against a seed of ~1.3e18, which is about a
+    ///      billionth of the market and is precisely what that floor exists to refuse.
     function test_recordPosition_refusesAPositionTheLockerIsNotTheStakerOf() public {
         // A second full-range position in the same pool, staked by someone else.
-        uint256 other = _mintFullRangeAs(stranger, 100e6, 100e18);
+        uint256 other = _mintFullRangeAs(stranger);
         vm.startPrank(stranger);
         posm.approve(address(dist), other);
         dist.stake(other, stranger);
@@ -370,7 +333,7 @@ contract LaunchLockerTest is LaunchpadFixture {
         locker.recordPosition(address(0xBEEF), p);
 
         // And one that is not staked anywhere.
-        uint256 loose = _mintFullRangeAs(stranger, 100e6, 100e18);
+        uint256 loose = _mintFullRangeAs(stranger);
         p.tokenId = loose;
         vm.prank(address(graduation));
         vm.expectRevert(abi.encodeWithSelector(LaunchLocker.PositionNotStaked.selector, loose));
@@ -436,13 +399,22 @@ contract LaunchLockerTest is LaunchpadFixture {
 
     /// @dev Mint a full-range position in the market's pool through the stand-in, owned by
     ///      `who`, paid for out of the trader's curve tokens and fresh unit.
-    function _mintFullRangeAs(address who, uint256 unitAmount, uint256 tokenAmount)
-        internal
-        returns (uint256 tokenId)
-    {
-        vm.prank(trader);
-        IERC20(token).transfer(who, tokenAmount);
+    ///
+    ///      Sized off the seed rather than off a literal: a hundredth of the locked
+    ///      position's liquidity, which is a hundred times the admission floor the seed's
+    ///      renunciation set, so a stake of it is admitted on its merits and the test that
+    ///      uses it reaches the locker check it exists for. Funded generously — a full-range
+    ///      position carries equal value on both sides, so a hundredth of the seed costs a
+    ///      hundredth of the raise, far less than either balance below.
+    function _mintFullRangeAs(address who) internal returns (uint256 tokenId) {
+        uint256 liquidity = dist.stakedLiquidityOf(address(locker)) / 100;
 
+        // Read before the prank: `balanceOf` is a call and would consume it.
+        uint256 share = IERC20(token).balanceOf(trader) / 2;
+        vm.prank(trader);
+        IERC20(token).transfer(who, share);
+
+        uint256 unitAmount = GRADUATION_THRESHOLD;
         usdg.mint(who, unitAmount);
         vm.startPrank(who);
         usdg.approve(address(reserve), unitAmount);
@@ -461,10 +433,8 @@ contract LaunchLockerTest is LaunchpadFixture {
 
         bytes memory actions = abi.encodePacked(uint8(0x02), uint8(0x0d));
         bytes[] memory params = new bytes[](2);
-        // A liquidity figure small enough that both sides fit in what `who` holds at any
-        // price the pool can be at after a few trades.
         params[0] = abi.encode(
-            key, tickLower, tickUpper, uint256(1e9), type(uint128).max, type(uint128).max, who, ""
+            key, tickLower, tickUpper, liquidity, type(uint128).max, type(uint128).max, who, ""
         );
         params[1] = abi.encode(key.currency0, key.currency1);
         tokenId = posm.nextTokenId();

@@ -16,7 +16,6 @@ import {LaunchCurve} from "../../src/launchpad/LaunchCurve.sol";
 import {LaunchFactory} from "../../src/launchpad/LaunchFactory.sol";
 import {LaunchGraduation} from "../../src/launchpad/LaunchGraduation.sol";
 import {LaunchGraduationGuard} from "../../src/launchpad/LaunchGraduationGuard.sol";
-import {ProtocolGuard} from "../../src/upgrade/ProtocolGuard.sol";
 import {
     GraduationPhase,
     ILaunchFactory,
@@ -126,9 +125,12 @@ contract LaunchGraduationTest is LaunchpadFixture {
         assertEq(m.reservePool, address(reserve));
         assertFalse(m.verified, "a launched token is never a canonical equity");
         assertEq(m.fee, POOL_FEE, "the launch config's LP tier");
-        assertEq(IERC20Metadata(g.unit).symbol(), "CAT.d");
-        assertEq(IERC20Metadata(g.unit).name(), "CAT Market Dollar");
-        assertTrue(reserve.isRegistered(g.unit), "the unit is a brand of the reserve");
+        // Quoted in the dollar the curve was quoted in, and nothing was minted for it. The
+        // brand keeps belonging to its issuer: no `marketOfBrand`, no vault of its own.
+        assertEq(g.unit, quoteBrand, "the launch's own dollar, not a fresh <SYM>.d");
+        assertTrue(marketFactory.isSharedQuote(launch.marketId), "a shared-quote market");
+        assertEq(marketFactory.marketOfBrand(quoteBrand), 0, "the brand belongs to no market");
+        assertEq(marketFactory.feeVaultOfBrand(quoteBrand), address(0), "and has no one vault");
 
         // The hook skims this pool at the factory's rate, into the protocol treasury.
         assertEq(hook.feeRecipientOf(PoolId.wrap(g.poolId)), protocolTreasury);
@@ -140,11 +142,14 @@ contract LaunchGraduationTest is LaunchpadFixture {
     }
 
     function test_graduateToMarket_reconcilesEveryUnitAndEveryToken() public {
+        // The curve's fees were credited in the same brand the raise is denominated in, and
+        // before this call, so they are netted out rather than counted against the seed.
+        uint256 curveFees = feeEscrow.balanceOfToken(protocolFeeRecipient, quoteBrand);
         Graduated memory g = _graduateToMarket();
 
-        // Quote side: the float was converted 1:1, and what the mint did not consume is the
-        // protocol's, in the escrow, so the two add back to the swept quote exactly.
-        uint256 unitDust = feeEscrow.balanceOfToken(protocolFeeRecipient, g.unit);
+        // Quote side: the raise stays in its own brand, and what the mint did not consume is
+        // the protocol's, in the escrow, so the two add back to the swept quote exactly.
+        uint256 unitDust = feeEscrow.balanceOfToken(protocolFeeRecipient, g.unit) - curveFees;
         assertEq(g.unitSeeded + unitDust, sweptQuote, "unit seeded + dust == swept quote");
         assertGt(g.unitSeeded, 0);
 
@@ -179,7 +184,17 @@ contract LaunchGraduationTest is LaunchpadFixture {
 
         assertEq(dist.stakerOf(g.positionId), address(locker), "the locker is the staker");
         assertEq(posm.ownerOf(g.positionId), address(dist), "the distributor custodies it");
-        assertEq(dist.totalStaked(), posm.getPositionLiquidity(g.positionId));
+        // The position is weighed as capital and is the only stake in the book, but it draws
+        // nothing from the stream: recording it renounced, and the floor it measured is one
+        // basis point of that weight.
+        assertEq(dist.positionCountOf(address(locker)), 1, "the one position is the locker's");
+        assertGt(dist.stakedWeightOfPosition(g.positionId), 0, "the position carries weight");
+        assertEq(dist.totalStaked(), 0, "and it draws nothing from the stream");
+        assertEq(
+            dist.minStakeWeight(),
+            dist.stakedWeightOfPosition(g.positionId) / dist.RENOUNCED_FLOOR_DIVISOR(),
+            "the floor is a basis point of the seed's weight"
+        );
 
         ILaunchLocker.LockedPosition memory p = locker.lockedPosition(token);
         assertTrue(p.exists);
@@ -196,15 +211,20 @@ contract LaunchGraduationTest is LaunchpadFixture {
         launchFactory.graduateToMarket(token);
     }
 
-    /// @notice A phase two that fails anywhere — here the reserve is halted, so the 1:1 swap
-    ///         into the unit reverts — is one reverted transaction: the launch stays swept,
-    ///         the factory keeps the reserves, and the same call succeeds once the cause is
-    ///         gone. Nothing needs rescuing.
+    /// @notice A phase two that fails anywhere — here the market factory refuses to open the
+    ///         market at all — is one reverted transaction: the launch stays swept, the
+    ///         factory keeps the reserves, and the same call succeeds once the cause is gone.
+    ///         Nothing needs rescuing.
     function test_graduateToMarket_failureLeavesTheLaunchSweptAndRetryable() public {
-        vm.prank(stackGuardian);
-        protocolGuard.pauseTarget(address(reserve));
+        // The trigger used to be halting the reserve, which no longer stops a graduation: the
+        // float registration was the only step of phase two that touched the reserve, and it
+        // is deliberately best-effort now, because a share of a third party's yield must not
+        // be able to veto the market's creation. Un-naming the launchpad fails the step that
+        // actually is load-bearing — the market itself — and is just as reversible.
+        vm.prank(marketFactory.owner());
+        marketFactory.setLaunchpad(address(0));
 
-        vm.expectRevert(ProtocolGuard.ProtocolPaused.selector);
+        vm.expectRevert(AssetMarketFactory.OnlyLaunchpad.selector);
         launchFactory.graduateToMarket(token);
 
         ILaunchFactory.LaunchedToken memory launch = launchFactory.getLaunchedToken(token);
@@ -218,8 +238,7 @@ contract LaunchGraduationTest is LaunchpadFixture {
         assertFalse(locker.lockedPosition(token).exists, "nothing locked");
         assertEq(locker.lockedSupply(token), 0, "nothing locked");
 
-        vm.prank(stackOwner);
-        protocolGuard.unpauseTarget(address(reserve));
+        _setLaunchpad(marketFactory, address(graduation));
 
         Graduated memory g = _graduateToMarket();
         assertEq(g.tokensSeeded + g.tokensLocked, sweptTokens, "the retry seeded everything");

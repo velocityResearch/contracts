@@ -65,7 +65,6 @@ contract LaunchpadLpFundUpgradeMainnetForkTest is Test {
     uint16 constant PROTOCOL_FEE_SHARE_BPS = 3_000;
     uint16 constant LP_FUND_SHARE_BPS = 3_000;
     uint16 constant CREATOR_FEE_SHARE_BPS = 4_000;
-    uint16 constant CREATOR_YIELD_SHARE_BPS = 4_000;
 
     bytes32 constant IMPL_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
     string constant DEFAULT_FORK_URL = "https://rpc.mainnet.chain.robinhood.com";
@@ -94,7 +93,6 @@ contract LaunchpadLpFundUpgradeMainnetForkTest is Test {
         factory.setProtocolFeeShareBps(PROTOCOL_FEE_SHARE_BPS);
         factory.setLpFundShareBps(LP_FUND_SHARE_BPS);
         factory.setGraduatedCreatorShareBps(CREATOR_FEE_SHARE_BPS);
-        factory.setGraduatedCreatorYieldShareBps(CREATOR_YIELD_SHARE_BPS);
         factory.setGraduatedLpFundShareBps(LP_FUND_SHARE_BPS);
         vm.stopPrank();
 
@@ -140,10 +138,9 @@ contract LaunchpadLpFundUpgradeMainnetForkTest is Test {
         );
 
         // The slot the three new fields pack into is the one holding graduatedCreatorShareBps,
-        // launchEnabled and graduatedCreatorYieldShareBps. A bad layout shows up here.
+        // launchEnabled and the retired yield share. A bad layout shows up here.
         assertEq(factory.graduatedCreatorShareBps(), CREATOR_FEE_SHARE_BPS, "LP-fee share");
         assertEq(factory.launchEnabled(), enabledBefore, "launchEnabled is untouched");
-        assertEq(factory.graduatedCreatorYieldShareBps(), CREATOR_YIELD_SHARE_BPS, "yield share");
         assertEq(factory.lpFundRecipient(), LP_FUND, "fund recipient");
         assertEq(factory.lpFundShareBps(), LP_FUND_SHARE_BPS, "fund share of the curve fee");
         assertEq(factory.graduatedLpFundShareBps(), LP_FUND_SHARE_BPS, "fund share after");

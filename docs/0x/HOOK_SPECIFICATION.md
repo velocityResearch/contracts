@@ -125,10 +125,14 @@ function beforeSwap(address, PoolKey calldata key, SwapParams calldata, bytes ca
 1. The return delta is `BeforeSwapDeltaLibrary.ZERO_DELTA`, unconditionally, with no branch above
    it (`ProtocolFeeHook.sol:592`). There is no path through this function that charges anything or
    modifies `amountToSwap`.
-2. The third return value is `0`, the LP fee override. Our pools are static-fee
-   (`key.fee = 5000` on all six), and `Hooks.beforeSwap` only parses an override when
-   `key.fee.isDynamicFee()` (`lib/v4-core/src/libraries/Hooks.sol:263`), which is false here. The
-   LP fee you read off the `PoolKey` is the LP fee that is charged.
+2. The third return value is `0`, the LP fee override, unconditionally. The six live pools are
+   static-fee (`key.fee = 5000`), so `Hooks.beforeSwap` never even parses it
+   (`lib/v4-core/src/libraries/Hooks.sol:263`). Markets created from 2026-09-21 on may instead
+   carry `key.fee = 0x800000`, Uniswap's dynamic-fee flag; for those the LP fee charged is the
+   stored `slot0.lpFee`, which `getSlot0` returns, seeded at 5000 by registration and moved by
+   `ProtocolFeeHook.setPoolLpFee` (owner or one authorised keeper, 100–50,000 pips, both
+   directions, no expiry, no per-swap logic). Either way the LP fee is the one `slot0` reports;
+   nothing in `beforeSwap` overrides it.
 3. It ignores its `sender` and `hookData` arguments, both unnamed in the signature.
 
 The only work it does is `_writeObservation` (`ProtocolFeeHook.sol:590`), which records the

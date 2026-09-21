@@ -1,10 +1,27 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {Test} from "forge-std/Test.sol";
+import {Test, Vm} from "forge-std/Test.sol";
 import {console} from "forge-std/console.sol";
 import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
 import {IERC721} from "@openzeppelin/token/ERC721/IERC721.sol";
+import {UpgradeableBeacon} from "@openzeppelin/proxy/beacon/UpgradeableBeacon.sol";
+
+// The real implementations, deployed inside the fork so the four launchpad tests can rehearse
+// `UpgradeGraduateIntoLaunchDollarMainnet` against live state before they exercise it. Every
+// other assertion in this file still speaks to the deployed surface through the minimal
+// interfaces below.
+import {AssetMarketFactory} from "../src/markets/AssetMarketFactory.sol";
+import {BrandFeeVault} from "../src/markets/BrandFeeVault.sol";
+import {LpRewardDistributor} from "../src/markets/LpRewardDistributor.sol";
+import {LaunchFactory} from "../src/launchpad/LaunchFactory.sol";
+import {LaunchDeployer} from "../src/launchpad/LaunchDeployer.sol";
+import {LaunchGraduation} from "../src/launchpad/LaunchGraduation.sol";
+import {LaunchLocker} from "../src/launchpad/LaunchLocker.sol";
+import {ILaunchGraduation, ILaunchLocker} from "../src/launchpad/interfaces/ILaunchpad.sol";
+import {IPermit2, IPositionManagerV4} from "../src/interfaces/IPositionManagerV4.sol";
+import {PoolBrandTreasury} from "../src/pool/PoolBrandTreasury.sol";
+import {SharedReservePool} from "../src/pool/SharedReservePool.sol";
 
 /// @notice Drives the **DEPLOYED** gen-5 Robinhood Chain mainnet stack — the real addresses in
 ///         `deployments/asset-markets-mainnet-v5.json` — through every flow the application and
@@ -24,6 +41,17 @@ import {IERC721} from "@openzeppelin/token/ERC721/IERC721.sol";
 ///         brand, enabling launching — the test impersonates the owner and makes it on the fork.
 ///         That is the point: it shows what those calls will do before they are sent for real.
 ///         USDG comes from impersonating Morpho Blue, which custodies tens of millions of it.
+///
+///         **Twelve tests pin what mainnet answers today; four rehearse the next deployment.**
+///         The four launchpad flows cannot run on the live code at all — a launch now
+///         graduates into its own quote brand, and that stack has not been broadcast — so they
+///         call `_rehearseGraduateIntoLaunchDollar` first, which performs
+///         `UpgradeGraduateIntoLaunchDollarMainnet` plus the locker and graduation redeploy on
+///         the fork, from the Safe, and then runs the whole launch → curve → graduation
+///         journey against it. That makes them a dry run of the real rollout on real state.
+///         The other twelve deliberately do NOT upgrade: they assert what is deployed, and an
+///         upgrade applied in `setUp` would quietly turn them into assertions about this
+///         working tree instead.
 ///
 ///         Pinned to this deployment on purpose. When gen-5 is superseded, delete it.
 ///
@@ -53,12 +81,34 @@ interface IFactory {
         address reservePool;
     }
 
+    /// @dev `PooledBrandToken.Metadata`, flattened for this minimal ABI view.
+    struct BrandMetadata {
+        string description;
+        string logo;
+        string socials;
+    }
+
     function approveAsset(address asset, AssetListing calldata listing) external;
     function createMarket(address asset, address reservePool)
         external
         returns (uint256, address, address, address, bytes32);
     function market(uint256 id) external view returns (Market memory);
     function marketCount() external view returns (uint256);
+    /// A brand registered THROUGH the factory, which is what gives it a `reserveOfBrand` and
+    /// therefore what a launch quoted in it insists on.
+    function registerBrand(string calldata name, string calldata symbol)
+        external
+        returns (address, address);
+    function registerBrand(
+        string calldata name,
+        string calldata symbol,
+        BrandMetadata calldata metadata,
+        address reserve
+    ) external returns (address, address);
+    function treasuryOfBrand(address brand) external view returns (address);
+    /// Whether the market is quoted in a dollar it does not own. True for every graduate now
+    /// that a graduation stops minting a `<SYM>.d` unit of its own.
+    function isSharedQuote(uint256 marketId) external view returns (bool);
     function marketOfAsset(address reservePool, address asset) external view returns (uint256);
     function approvedReservePool(address pool) external view returns (bool);
     function reservePool() external view returns (address);
@@ -82,6 +132,9 @@ interface IReserve {
         external
         returns (address, address);
     function isRegistered(address brand) external view returns (bool);
+    /// The registry a `<SYM>.d` used to be appended to at every graduation. Read before and
+    /// after a graduation to prove it no longer is.
+    function allBrandTokensLength() external view returns (uint256);
     function asset() external view returns (address);
     function owner() external view returns (address);
     function pendingOwner() external view returns (address);
@@ -90,6 +143,18 @@ interface IReserve {
     function liabilityCap() external view returns (uint256);
     function redemptionFeeBps() external view returns (uint16);
     function setLiabilityCap(uint256 cap) external;
+}
+
+/// @dev How a dollar's issuer consents to sharing the float yield of the markets it quotes.
+///      A launch quoted in a brand without it is refused.
+interface IBrandTreasury {
+    function setFactory(address newFactory) external;
+    /// The issuer, and the only party `setFactory` accepts.
+    function admin() external view returns (address);
+    /// What `AssetMarketFactory.recordLaunchFloat` credited this market's vault with: the
+    /// share of the brand's float the graduated pool locked, and therefore the share of the
+    /// brand's yield its LPs are paid.
+    function floatOf(address vault) external view returns (uint256);
 }
 
 interface IRouter {
@@ -143,8 +208,7 @@ interface ILaunchFactory {
         bool enabled;
     }
 
-    struct PairTokenEconomics {
-        address reserve;
+    struct ReserveEconomics {
         uint256 phantomQuote;
         uint256 graduationThreshold;
         uint256 launchFee;
@@ -174,12 +238,13 @@ interface ILaunchFactory {
     function launchEnabled() external view returns (bool);
     function launchConfigCount() external view returns (uint256);
     function getLaunchConfig(uint256 id) external view returns (LaunchConfig memory);
-    function pairTokenEconomics(address brand)
+    function reserveEconomics(address reserve)
         external
         view
-        returns (address, uint256, uint256, uint256, uint8, bool);
-    function setPairTokenEconomics(address brand, PairTokenEconomics calldata e) external;
-    function setPairTokenApproved(address brand, bool approved) external;
+        returns (uint256, uint256, uint256, uint8, bool);
+    function launchEconomics(address brand) external view returns (address, ReserveEconomics memory);
+    function setReserveEconomics(address reserve, ReserveEconomics calldata e) external;
+    function setReserveApproved(address reserve, bool approved) external;
     function setLaunchEnabled(bool enabled) external;
     function previewLaunchEconomics(uint256 configId, address brand) external view returns (bytes32);
     function launchToken(
@@ -201,7 +266,6 @@ interface ILaunchFactory {
     function snipeTaxStartBps() external view returns (uint256);
     function snipeTaxSeconds() external view returns (uint256);
     function graduatedCreatorShareBps() external view returns (uint16);
-    function graduatedCreatorYieldShareBps() external view returns (uint16);
     /// Zero on a proxy that has not taken the LP fund upgrade, which is a valid live state
     /// and is why the assertions read these as an invariant rather than a fixed pair.
     function graduatedLpFundShareBps() external view returns (uint16);
@@ -228,11 +292,13 @@ interface ILaunchCurve {
         returns (uint256, uint256, uint256);
 }
 
-/// @dev Just the immutable the live graduation module exposes, so the locker can be derived
-///     from the factory rather than pinned. Declared locally because these tests read the
-///     deployed surface, which may be an older compilation than `src/`.
+/// @dev Just the immutables the live graduation module exposes, so the locker — and the
+///     Permit2 the redeployed module has to be handed — can be derived from the factory
+///     rather than pinned. Declared locally because these tests read the deployed surface,
+///     which may be an older compilation than `src/`.
 interface IGraduationModule {
     function locker() external view returns (address);
+    function permit2() external view returns (address);
 }
 
 interface ILaunchRouter {
@@ -372,6 +438,10 @@ contract LiveGen5MainnetForkTest is Test {
     ///      the pair of owner calls that will enable launching for real.
     address quoteBrand;
 
+    /// @dev Set once `_rehearseGraduateIntoLaunchDollar` has run on this fork, so the four
+    ///      tests that need it may each ask for it without a second one landing.
+    bool rehearsed;
+
     function setUp() public {
         vm.createSelectFork(
             vm.envOr("ETH_RPC_URL", string("https://rpc.mainnet.chain.robinhood.com"))
@@ -436,13 +506,12 @@ contract LiveGen5MainnetForkTest is Test {
         assertEq(launch.snipeTaxSeconds(), 15, "snipe tax window");
         // The rates a graduated position's income is split on. Asserted as the invariant they
         // have to satisfy rather than as the numbers they currently hold: the LP-fee share is
-        // snapshotted per launch and the yield and LP-fund shares are read live, so the live
-        // figures are policy that moves, and pinning policy here only produces a test that
-        // fails the next time the owner retunes it. What must never be true is a pair that
-        // sums past a whole leg — that would underflow the protocol's remainder inside
-        // `LaunchLocker.collect` and wedge every collection on every position at once.
+        // snapshotted per launch and the LP-fund share is read live, so the live figures are
+        // policy that moves, and pinning policy here only produces a test that fails the next
+        // time the owner retunes it. What must never be true is a pair that sums past a whole
+        // leg — that would underflow the protocol's remainder inside `LaunchLocker.collect`
+        // and wedge every collection on every position at once.
         uint16 feeShare = launch.graduatedCreatorShareBps();
-        uint16 yieldShare = launch.graduatedCreatorYieldShareBps();
         // The three LP fund getters exist only on an implementation that has taken the fund
         // upgrade. A proxy that has not is a valid live state, not a failure, so absence is
         // read as the leg being off rather than asserted against. This is also the check that
@@ -450,7 +519,6 @@ contract LiveGen5MainnetForkTest is Test {
         (uint16 fundShare, uint16 curveFundShare, address fundRecipient, bool fundLegDeployed) =
             _readLpFundPolicy(launch);
         assertLe(uint256(feeShare) + fundShare, 10_000, "LP-fee leg splits to at most the whole");
-        assertLe(uint256(yieldShare) + fundShare, 10_000, "yield leg splits to at most the whole");
         assertLe(
             launch.protocolFeeShareBps() + uint256(curveFundShare),
             10_000,
@@ -491,30 +559,106 @@ contract LiveGen5MainnetForkTest is Test {
     }
 
     /// @dev The platform is open now, so the property worth pinning is no longer "nothing can
-    ///      happen" but "the one thing that had to be configured before anything could happen
-    ///      is configured, and a human has not yet pulled the trigger".
-    function test_live_launchingIsOpenAgainstAnSusdaiBackedQuoteBrand() public view {
+    ///      happen" but "the one thing that has to be configured before anything can happen is
+    ///      one owner call, and it opens every dollar on the reserve — including the ones
+    ///      nobody has issued yet".
+    ///
+    ///      REHEARSED, not read off today's chain, and the name says so. Launch terms are
+    ///      keyed by RESERVE here and the upgrade that re-keys them carries empty calldata:
+    ///      every reserve reads closed until the owner writes its figures, and the per-brand
+    ///      entries mainnet holds today sit at a retired slot no function reads. So the
+    ///      property is proven the way the rollout will establish it.
+    ///
+    ///      The live sUSDai brand is the counterexample that makes the rollout safe, and it is
+    ///      asserted here rather than assumed: $slUSD was registered STRAIGHT onto the sUSDai
+    ///      reserve rather than through the market factory, so `treasuryOfBrand` is zero and
+    ///      no reserve-level call can ever make it launchable. That is what retires the old
+    ///      `setPairTokenApproved(slUSD, false)` rollout step — the refusal is structural now,
+    ///      not an approval somebody has to remember to take off.
+    function test_rehearsed_openingTheSusdaiReserveLaunchesEveryBrandRegisteredOnItAfterwards()
+        public
+    {
+        _rehearseGraduateIntoLaunchDollar();
+
+        // $slUSD. Pooled in the reserve, and invisible to the market factory.
+        address slUsd = 0xE20cE31a996f07b3d70F9C840e6810F0f572C884;
+        assertTrue(IReserve(SUSDAI_RESERVE).isRegistered(slUsd), "registered on its reserve");
+        assertEq(factory.treasuryOfBrand(slUsd), address(0), "never registered through the factory");
+        vm.expectRevert(
+            abi.encodeWithSignature("PairTokenNotRegistered(address,address)", slUsd, address(0))
+        );
+        launch.launchEconomics(slUsd);
+
+        // One call, naming the RESERVE. No transaction here ever names a brand.
+        vm.startPrank(SAFE);
+        launch.setReserveEconomics(
+            SUSDAI_RESERVE,
+            ILaunchFactory.ReserveEconomics({
+                phantomQuote: 3_236e6,
+                graduationThreshold: 8_090e6,
+                launchFee: 1e6,
+                decimals: 6,
+                approved: true
+            })
+        );
+        launch.setLaunchEnabled(true);
+        vm.stopPrank();
         assertTrue(launch.launchEnabled(), "launching is open");
 
-        address liveQuote = 0xE20cE31a996f07b3d70F9C840e6810F0f572C884;
-        (address r, uint256 phantom, uint256 threshold,, uint8 dec, bool ok) =
-            launch.pairTokenEconomics(liveQuote);
-        assertTrue(ok, "quote brand is approved");
-        assertEq(dec, 6, "quote decimals");
-        assertEq(phantom, 3_236e6, "phantom quote");
-        assertEq(threshold, 8_090e6, "graduation threshold");
+        // Opening the reserve does not resurrect the brand the factory never registered.
+        vm.expectRevert(
+            abi.encodeWithSignature("PairTokenNotRegistered(address,address)", slUsd, address(0))
+        );
+        launch.launchEconomics(slUsd);
 
-        // The brand sits on the sUSDai reserve, not the market factory's default. Graduation
-        // off a non-default reserve is proven separately against these same addresses by
-        // test_live_anSusdaiBackedBrandLaunchesAndGraduatesOffTheDefaultReserve.
-        assertEq(r, SUSDAI_RESERVE, "quote brand is backed by the sUSDai reserve");
-        assertTrue(r != RESERVE, "quote brand is not on the default reserve");
-        assertTrue(IReserve(SUSDAI_RESERVE).isRegistered(liveQuote), "registered on its reserve");
+        // And the property this whole re-keying exists for: a dollar issued AFTER the reserve
+        // was opened is launchable immediately. Everything below is the issuer acting alone —
+        // `user`, not `SAFE` — so a passing assertion is proof that no owner call stands
+        // between issuing a dollar and launching against it.
+        vm.startPrank(user);
+        (address freshBrand, address freshTreasury) = factory.registerBrand(
+            "Community sUSDai Dollar",
+            "commUSD",
+            IFactory.BrandMetadata({description: "", logo: "", socials: ""}),
+            SUSDAI_RESERVE
+        );
+        IBrandTreasury(freshTreasury).setFactory(FACTORY);
 
-        // What this test pins is that launching is *open* against this brand — approved, priced
-        // and backed by a reserve the factory accepts. Counting how many launches or markets
-        // exist would pin how much the deployment has been used, which is not a property of
-        // whether it is open, and which is false the first time anybody uses it.
+        (address r, ILaunchFactory.ReserveEconomics memory e) = launch.launchEconomics(freshBrand);
+        assertEq(r, SUSDAI_RESERVE, "the new dollar is backed by the sUSDai reserve");
+        assertTrue(r != RESERVE, "and not by the market factory's default");
+        assertTrue(e.approved, "launchable with no owner call of its own");
+        assertEq(e.decimals, 6, "quote decimals");
+        assertEq(e.phantomQuote, 3_236e6, "phantom quote");
+        assertEq(e.graduationThreshold, 8_090e6, "graduation threshold");
+
+        // Terms that merely read "open" have never deployed anything, so launch it.
+        bytes32 pinned = launch.previewLaunchEconomics(0, freshBrand);
+        IERC20(USDG).approve(SUSDAI_RESERVE, 10e6);
+        IReserve(SUSDAI_RESERVE).mint(freshBrand, 10e6, user);
+        IERC20(freshBrand).approve(LAUNCH_FACTORY, type(uint256).max);
+        (address token,) = launch.launchToken(
+            ILaunchFactory.TokenParams({
+                name: "Live Quote Coin",
+                symbol: "LQC",
+                logo: "",
+                description: "a dollar issued after its reserve was opened, launchable at once",
+                socials: ILaunchFactory.Socials("", "", "", "", ""),
+                creatorFeeRecipient: user,
+                creatorTaxBps: 0,
+                expectedEconomics: pinned,
+                salt: bytes32(uint256(0x11FE))
+            }),
+            0,
+            freshBrand,
+            new address[](0)
+        );
+        vm.stopPrank();
+
+        ILaunchFactory.LaunchedToken memory rec = launch.getLaunchedToken(token);
+        assertEq(rec.pairToken, freshBrand, "the launch is quoted in the new dollar");
+        assertEq(rec.reserve, SUSDAI_RESERVE, "against the reserve the owner opened");
+        assertEq(rec.graduationThreshold, 8_090e6, "on that reserve's terms");
     }
 
     function test_live_theSusdaiGroupIsOperationalAndBoundedOnEverySide() public view {
@@ -708,15 +852,167 @@ contract LiveGen5MainnetForkTest is Test {
 
     // ─── 3. The launchpad, through the deployed addresses ────────────────
 
-    /// @dev The three owner calls that open launching, plus the brand they need. This is the
-    ///      exact sequence that will enable the launchpad for real.
-    function _enableLaunching() internal {
+    /// @notice Perform, on the fork and from the Safe, the upgrade that has NOT been broadcast
+    ///         to mainnet yet: `UpgradeGraduateIntoLaunchDollarMainnet` plus the locker and
+    ///         graduation redeploy that script deliberately leaves to a separate step.
+    ///
+    /// @dev    **Why some tests upgrade and the rest must not.** The tests that do not
+    ///         rehearse pin what mainnet answers *today* — who owns what, which module both
+    ///         factories name, what the sUSDai group's limits are — and an upgrade applied in
+    ///         `setUp` would make every one of them assert the code in this working tree
+    ///         instead of the code on chain, which is the entire failure mode this suite was
+    ///         written to catch. The launchpad flows cannot run on today's chain at all: a
+    ///         launch now graduates into its own quote brand and refuses one whose
+    ///         `PoolBrandTreasury` has not called `setFactory` — a function the live treasury
+    ///         implementation behind beacon `0xf8b7…C34E` does not have — and it reads its
+    ///         terms off the brand's RESERVE, which no live proxy carries yet. So they
+    ///         rehearse the deployment first and then run against it, which makes them a dry
+    ///         run of the real rollout against real state rather than a second offline suite.
+    ///
+    ///         Steps 1 to 4 are the script's steps, in the script's order. Steps 5 and 6 are
+    ///         the two things a rollout needs that the script deliberately does not carry:
+    ///
+    ///         1–2. `upgradeToAndCall` with empty calldata on the `AssetMarketFactory` and
+    ///              `LaunchFactory` proxies. Nothing was added, moved or retyped on either, so
+    ///              there is no initialiser to run.
+    ///         3.   `upgradeTo` on the `PoolBrandTreasury`, `BrandFeeVault` and
+    ///              `LpRewardDistributor` beacons. Every treasury, vault and distributor is a
+    ///              `BeaconProxy`, so one call each moves all of them — including the treasury
+    ///              of a brand that does not exist yet, which is what lets `_enableLaunching`
+    ///              register a brand below and immediately call `setFactory` on it.
+    ///         4.   The LP fund recipient BEFORE either rate: every share setter refuses a
+    ///              nonzero rate while `lpFundRecipient` is unset.
+    ///         5.   Redeploy `LaunchLocker` and `LaunchGraduation`. Neither is upgradeable —
+    ///              that is what makes "the liquidity is locked forever" a property of the
+    ///              bytecode — and `LaunchLocker.setGraduation` is one-shot, so a new module
+    ///              always arrives as a fresh pair, with both factories repointed at it.
+    ///         6.   Redeploy `LaunchDeployer` and rotate the factory onto it. This step is
+    ///              NOT in `UpgradeGraduateIntoLaunchDollarMainnet`, and it has to be here
+    ///              anyway: the live deployer embeds the pre-segments `LaunchCurve` creation
+    ///              code, whose only entry point is `initialize(address)`, while every
+    ///              `LaunchFactory` built from this tree calls
+    ///              `initialize(address,(uint16,uint32)[])`. Without the rotation the first
+    ///              `launchToken` after the upgrade reverts with no data, in the curve's
+    ///              missing-selector fallback. A curve already deployed is untouched by the
+    ///              rotation, so this only governs launches created after it.
+    ///
+    ///         The issuer opt-in the script's step 5 makes for each live quote brand is not
+    ///         made here, because these tests register their own brands: each one calls
+    ///         `PoolBrandTreasury.setFactory` itself, as its own issuer, which is exactly what
+    ///         the script asks a third-party issuer to do.
+    ///
+    ///         The fresh `LaunchFactory` implementation needs the `LaunchGuardDeployer`
+    ///         library linked; forge links it into `new LaunchFactory()` automatically here,
+    ///         the same way the broadcast does.
+    function _rehearseGraduateIntoLaunchDollar() internal {
+        _rehearseGraduateIntoLaunchDollar(true);
+    }
+
+    /// @dev The same rehearsal with step 6 made optional, so
+    ///      `test_live_upgradingTheLaunchFactoryWithoutItsDeployerBreaksEveryNewLaunch` can
+    ///      hold the rollout one call short and show what that costs. Nothing else passes
+    ///      `false`.
+    function _rehearseGraduateIntoLaunchDollar(bool rotateLaunchDeployer) internal {
+        if (rehearsed) return;
+        rehearsed = true;
+
+        AssetMarketFactory marketFactory = AssetMarketFactory(FACTORY);
+        LaunchFactory launchFactory = LaunchFactory(LAUNCH_FACTORY);
+
+        // Derived, never pinned, for the reason `_liveGraduation` gives: the beacons belong to
+        // the reserves and the market factory, and the Permit2 the redeployed module needs is
+        // an immutable of the module being replaced.
+        address treasuryBeacon = SharedReservePool(RESERVE).treasuryBeacon();
+        address susdaiTreasuryBeacon = SharedReservePool(SUSDAI_RESERVE).treasuryBeacon();
+        (address vaultBeacon, address distributorBeacon) = marketFactory.beacons();
+        address permit2 = IGraduationModule(launch.graduation()).permit2();
+
+        address freshMarketImplementation = address(new AssetMarketFactory());
+        address freshLaunchImplementation = address(new LaunchFactory());
+        address freshTreasuryImplementation = address(new PoolBrandTreasury());
+        address freshVaultImplementation = address(new BrandFeeVault());
+        address freshDistributorImplementation = address(new LpRewardDistributor());
+
         vm.startPrank(SAFE);
-        (quoteBrand,) = reserve.registerBrand("Launch Dollar", "launchUSD", DEPLOYER);
-        launch.setPairTokenEconomics(
-            quoteBrand,
-            ILaunchFactory.PairTokenEconomics({
-                reserve: RESERVE,
+        marketFactory.upgradeToAndCall(freshMarketImplementation, "");
+        launchFactory.upgradeToAndCall(freshLaunchImplementation, "");
+
+        UpgradeableBeacon(treasuryBeacon).upgradeTo(freshTreasuryImplementation);
+        // The two reserves share one treasury beacon today, but nothing enforces that, so the
+        // second is moved only if it is genuinely a second — `upgradeTo` to the implementation
+        // a beacon already holds is accepted, but repeating it would hide a split if one ever
+        // happened.
+        if (susdaiTreasuryBeacon != treasuryBeacon) {
+            UpgradeableBeacon(susdaiTreasuryBeacon).upgradeTo(freshTreasuryImplementation);
+        }
+        UpgradeableBeacon(vaultBeacon).upgradeTo(freshVaultImplementation);
+        UpgradeableBeacon(distributorBeacon).upgradeTo(freshDistributorImplementation);
+
+        launchFactory.setLpFundRecipient(factory.protocolTreasury());
+        launchFactory.setGraduatedLpFundShareBps(3_000);
+        launchFactory.setGraduatedCreatorShareBps(4_000);
+        vm.stopPrank();
+
+        LaunchLocker locker = new LaunchLocker(SAFE, LAUNCH_FACTORY);
+        LaunchGraduation graduation = new LaunchGraduation(
+            LAUNCH_FACTORY,
+            marketFactory,
+            IPositionManagerV4(POSM),
+            IPermit2(permit2),
+            ILaunchLocker(address(locker)),
+            launchFactory.feeEscrow()
+        );
+
+        // The curve deployer the fresh implementation needs; see step 6. Built outside the
+        // prank, because a `new` consumes a `vm.prank` the same way a call does.
+        LaunchDeployer launchDeployer = _freshLaunchDeployer();
+
+        vm.startPrank(SAFE);
+        locker.setGraduation(address(graduation));
+        launchFactory.setGraduation(ILaunchGraduation(address(graduation)));
+        marketFactory.setLaunchpad(address(graduation));
+        if (rotateLaunchDeployer) launchFactory.setLaunchDeployer(launchDeployer);
+        vm.stopPrank();
+
+        // The cross-link every graduation depends on, asserted here rather than in each test:
+        // a rehearsal that half-landed would otherwise surface as `OnlyLaunchpad` deep inside
+        // phase two and read like a contract defect.
+        assertEq(factory.launchpad(), address(graduation), "market factory not repointed");
+        assertEq(launch.graduation(), address(graduation), "launch factory not repointed");
+        assertEq(_liveLocker(), address(locker), "the fresh module does not name its locker");
+    }
+
+    /// @dev A `LaunchDeployer` built from this tree, and therefore carrying this tree's
+    ///      `LaunchCurve` creation code. Its constructor names the factory, which is what
+    ///      `setLaunchDeployer` checks before accepting it.
+    function _freshLaunchDeployer() internal returns (LaunchDeployer) {
+        return new LaunchDeployer(LAUNCH_FACTORY);
+    }
+
+    /// @dev The owner calls that open launching, plus the brand they need. This is the exact
+    ///      sequence that will enable the launchpad for real.
+    ///
+    ///      The brand is registered THROUGH the market factory, not straight onto the reserve.
+    ///      Graduation now opens the market quoted in this very brand, so the factory has to
+    ///      know which reserve it belongs to, and the brand's treasury has to name the factory
+    ///      before a launch quoted in it is accepted. Registering leaves the caller as the
+    ///      treasury's admin, which is why both calls sit inside the same prank.
+    ///
+    ///      The launch terms are written against the RESERVE and opened in a second call, so
+    ///      every dollar on it — this one and any issued later — launches on them.
+    ///
+    ///      The rehearsal comes first and is not optional: `setFactory` does not exist on the
+    ///      treasury implementation mainnet is running today.
+    function _enableLaunching() internal {
+        _rehearseGraduateIntoLaunchDollar();
+
+        vm.startPrank(SAFE);
+        address quoteTreasury;
+        (quoteBrand, quoteTreasury) = factory.registerBrand("Launch Dollar", "launchUSD");
+        IBrandTreasury(quoteTreasury).setFactory(FACTORY);
+        launch.setReserveEconomics(
+            RESERVE,
+            ILaunchFactory.ReserveEconomics({
                 phantomQuote: 3_236e6,
                 graduationThreshold: 8_090e6,
                 launchFee: 1e6,
@@ -724,7 +1020,7 @@ contract LiveGen5MainnetForkTest is Test {
                 approved: false
             })
         );
-        launch.setPairTokenApproved(quoteBrand, true);
+        launch.setReserveApproved(RESERVE, true);
         launch.setLaunchEnabled(true);
         vm.stopPrank();
     }
@@ -736,41 +1032,69 @@ contract LiveGen5MainnetForkTest is Test {
         vm.stopPrank();
     }
 
-    function test_live_enablingLaunchingTakesExactlyThreeOwnerCalls() public {
+    function test_live_enablingLaunchingOpensTheBrandAndTheLaunchpad() public {
         _enableLaunching();
         assertTrue(launch.launchEnabled(), "launching is open");
-        (address r,,,, uint8 dec, bool ok) = launch.pairTokenEconomics(quoteBrand);
+        (address r, ILaunchFactory.ReserveEconomics memory e) = launch.launchEconomics(quoteBrand);
         assertEq(r, RESERVE, "brand's reserve");
-        assertEq(dec, 6, "brand decimals");
-        assertTrue(ok, "brand approved");
+        assertEq(e.decimals, 6, "reserve asset decimals");
+        assertTrue(e.approved, "the reserve is open for launches");
         assertTrue(reserve.isRegistered(quoteBrand), "brand registered on the reserve");
+    }
+
+    /// @dev The launch terms, factored out so the launch that works and the launch that
+    ///      cannot work submit byte-identical parameters and differ only in whether the
+    ///      factory's curve deployer was rotated with it.
+    function _launchParams(address creator, bytes32 salt)
+        internal
+        view
+        returns (ILaunchFactory.TokenParams memory)
+    {
+        return ILaunchFactory.TokenParams({
+            name: "Mainnet Test Coin",
+            symbol: "MTC",
+            logo: "",
+            description: "live-surface fork exercise",
+            socials: ILaunchFactory.Socials("", "", "", "", ""),
+            creatorFeeRecipient: creator,
+            creatorTaxBps: 0,
+            expectedEconomics: launch.previewLaunchEconomics(0, quoteBrand),
+            salt: salt
+        });
     }
 
     function _launch(address creator, bytes32 salt)
         internal
         returns (address token, address curve)
     {
-        bytes32 economics = launch.previewLaunchEconomics(0, quoteBrand);
         address[] memory none = new address[](0);
         vm.startPrank(creator);
         IERC20(quoteBrand).approve(LAUNCH_FACTORY, type(uint256).max);
-        (token, curve) = launch.launchToken(
-            ILaunchFactory.TokenParams({
-                name: "Mainnet Test Coin",
-                symbol: "MTC",
-                logo: "",
-                description: "live-surface fork exercise",
-                socials: ILaunchFactory.Socials("", "", "", "", ""),
-                creatorFeeRecipient: creator,
-                creatorTaxBps: 0,
-                expectedEconomics: economics,
-                salt: salt
-            }),
-            0,
-            quoteBrand,
-            none
-        );
+        (token, curve) = launch.launchToken(_launchParams(creator, salt), 0, quoteBrand, none);
         vm.stopPrank();
+    }
+
+    /// @dev Phase two, returning what the position mint actually consumed of the quote brand.
+    ///      `graduateToMarket` returns nothing and the figure exists only in the module's
+    ///      return value and in `PoolGraduated`, and it is the very number the graduation
+    ///      hands to `AssetMarketFactory.recordLaunchFloat` — so reading it off the event is
+    ///      how the float assertions below compare against the real seed rather than against
+    ///      a re-derivation of it.
+    function _graduateToMarketAndReadSeed(address token) internal returns (uint256 unitSeeded) {
+        vm.recordLogs();
+        launch.graduateToMarket(token);
+
+        bytes32 sig = keccak256(
+            "PoolGraduated(address,uint256,address,bytes32,uint256,uint256,uint256,uint256)"
+        );
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i = 0; i < logs.length; ++i) {
+            if (logs[i].emitter != LAUNCH_FACTORY || logs[i].topics[0] != sig) continue;
+            (,,, unitSeeded,,) =
+                abi.decode(logs[i].data, (address, bytes32, uint256, uint256, uint256, uint256));
+            return unitSeeded;
+        }
+        revert("PoolGraduated not emitted");
     }
 
     function test_live_launchATokenAndTradeItsCurve() public {
@@ -807,6 +1131,54 @@ contract LiveGen5MainnetForkTest is Test {
         console.log("curve sell quote back (6dp):", quoteBack);
     }
 
+    /// @notice Upgrading the `LaunchFactory` without rotating its `LaunchDeployer` breaks every
+    ///         new launch, so a fresh deployer is a hard prerequisite of this rollout.
+    ///
+    /// @dev    This assertion has flipped twice, and the history is the point. The live
+    ///         deployer at `0x7979708A…dd5E7` embeds a `LaunchCurve` whose only entry point is
+    ///         `initialize(address)` — `0xc4d66de8`. Segmented curves gave `LaunchCurve` a
+    ///         second overload, `initialize(address,(uint16,uint32)[])` — `0x6508e7ac` — and a
+    ///         factory built from this tree calls that one. The live curve has no such
+    ///         selector, so the call dies several frames down in its missing-selector
+    ///         fallback, with no revert data, on every single launch.
+    ///
+    ///         The graduate-into-launch-dollar branch was cut without segments and pinned the
+    ///         opposite — "the live deployer still serves this tree" — noting that the step
+    ///         comes back the day the overload returns. It has returned: this tree carries
+    ///         both. So the rollout gets its step back, and this holds it one call short to
+    ///         show what that costs, then makes the call and shows it is sufficient. A curve
+    ///         already deployed is untouched by the rotation; it governs launches created
+    ///         after it.
+    function test_live_upgradingTheLaunchFactoryWithoutItsDeployerBreaksEveryNewLaunch() public {
+        _rehearseGraduateIntoLaunchDollar(false);
+        _enableLaunching();
+        _mintQuote(user, 20_000e6);
+
+        address[] memory none = new address[](0);
+        ILaunchFactory.TokenParams memory params = _launchParams(user, bytes32(uint256(11)));
+
+        vm.prank(user);
+        IERC20(quoteBrand).approve(LAUNCH_FACTORY, type(uint256).max);
+        vm.prank(user);
+        (bool ok,) = LAUNCH_FACTORY.call(
+            abi.encodeCall(ILaunchFactory.launchToken, (params, 0, quoteBrand, none))
+        );
+        assertFalse(ok, "the live deployer served a factory from this tree: the step is not needed");
+
+        // The one call the rollout owes: a deployer carrying this tree's curve.
+        LaunchDeployer fresh = _freshLaunchDeployer();
+        vm.prank(SAFE);
+        LaunchFactory(LAUNCH_FACTORY).setLaunchDeployer(fresh);
+
+        vm.prank(user);
+        (bool okAfter, bytes memory returned) = LAUNCH_FACTORY.call(
+            abi.encodeCall(ILaunchFactory.launchToken, (params, 0, quoteBrand, none))
+        );
+        assertTrue(okAfter, "the rotated deployer could not serve a factory from this tree");
+        (address token, address curve) = abi.decode(returned, (address, address));
+        assertEq(IERC20(token).balanceOf(curve), 1e27, "the whole supply did not reach the curve");
+    }
+
     function test_live_theCurveSellsOutAndGraduatesIntoARealMarket() public {
         _enableLaunching();
         _mintQuote(user, 200_000e6);
@@ -833,8 +1205,15 @@ contract LiveGen5MainnetForkTest is Test {
         assertGt(rec.sweptQuote, 0, "nothing was swept");
 
         // Phase two: open the market. Permissionless.
+        //
+        // `brandsBefore` is the registry a graduation used to append a `<SYM>.d` to. It is
+        // read across the graduation because "the graduate mints no dollar of its own" is
+        // only really provable as a count that did not move: the market's `brandToken` being
+        // the quote brand would also be true of a stack that registered a unit and then
+        // ignored it.
         uint256 marketsBefore = factory.marketCount();
-        launch.graduateToMarket(token);
+        uint256 brandsBefore = reserve.allBrandTokensLength();
+        uint256 unitSeeded = _graduateToMarketAndReadSeed(token);
 
         rec = launch.getLaunchedToken(token);
         assertEq(rec.phase, 2, "launch should be Graduated");
@@ -846,35 +1225,71 @@ contract LiveGen5MainnetForkTest is Test {
         assertEq(m.reservePool, RESERVE, "market backed by the launch's reserve");
         assertFalse(m.verified, "a launch token is not a canonical equity");
 
+        // The change this branch makes, asserted from three sides. A graduate is now an
+        // ordinary shared-quote market in the dollar its buyers actually paid in, so the pool
+        // is `launchUSD/MTC` rather than `launchUSD` converted into an `MTC.d` nobody asked
+        // for.
+        assertEq(m.brandToken, quoteBrand, "the graduated pool is quoted in the launch's brand");
+        assertEq(
+            reserve.allBrandTokensLength(),
+            brandsBefore,
+            "graduation registered a dollar of its own"
+        );
+        assertTrue(
+            factory.isSharedQuote(rec.marketId), "the graduate claims the brand as its own unit"
+        );
+
+        // And what it gets instead of owning that dollar: a share of the brand's float
+        // proportional to what its pool locked. Compared against the mint's own measurement,
+        // not against `rec.sweptQuote` — the position mint consumes what the live price wants
+        // and leaves dust, and the dust is the protocol's rather than the market's.
+        assertGt(unitSeeded, 0, "the graduation seeded no liquidity");
+        assertEq(
+            IBrandTreasury(m.treasury).floatOf(m.feeVault),
+            unitSeeded,
+            "the brand's treasury was not told what this pool locked"
+        );
+
         // The seed is locked: the position is staked in the distributor with the locker as the
         // beneficiary, and the locker exposes no withdrawal path. `earned` is deliberately NOT
-        // the assertion — nothing has been swept yet, so the reward stream is empty and zero is
-        // the correct answer. What matters is custody, which is the position count.
+        // the assertion — the locked position renounces its reward stream at `recordPosition`
+        // so the float above reaches the market's OTHER providers, and zero is the correct
+        // answer for the locker forever. What matters is custody, which is the position count.
         assertGt(
             IDistributor(m.lpDistributor).positionCountOf(_liveLocker()),
             0,
             "the graduated position is not staked for the live locker"
         );
         console.log("graduated market id:", rec.marketId);
-        console.log("graduated market unit:", m.brandToken);
+        console.log("graduated market quote brand:", m.brandToken);
+        console.log("float credited to the market's LPs (6dp):", unitSeeded);
     }
 
     /// @dev The launchpad is about to be opened against a quote brand on the sUSDai reserve,
     ///      which is NOT the market factory's default. Everything that follows a launch resolves
-    ///      a reserve from somewhere -- `setPairTokenEconomics` validates one, the curve mints
+    ///      a reserve from somewhere -- `setReserveEconomics` validates one, the curve mints
     ///      and burns against one, and `graduateToMarket` opens a market that records one -- and
     ///      a stack that only ever ran against the default reserve has never shown that those
     ///      four agree. This is that proof, on the deployed addresses, before the switch is
     ///      thrown on mainnet.
     function test_live_anSusdaiBackedBrandLaunchesAndGraduatesOffTheDefaultReserve() public {
+        _rehearseGraduateIntoLaunchDollar();
         IReserve susdai = IReserve(SUSDAI_RESERVE);
 
         vm.startPrank(SAFE);
-        (address susdaiBrand,) = susdai.registerBrand("Stables sUSDai Dollar", "sdUSD", DEPLOYER);
-        launch.setPairTokenEconomics(
-            susdaiBrand,
-            ILaunchFactory.PairTokenEconomics({
-                reserve: SUSDAI_RESERVE,
+        // Through the market factory and into the sUSDai reserve, so `reserveOfBrand` names
+        // that reserve and the graduated market records it. Then the treasury opts into
+        // sharing the brand's float with the markets it quotes.
+        (address susdaiBrand, address susdaiTreasury) = factory.registerBrand(
+            "Stables sUSDai Dollar",
+            "sdUSD",
+            IFactory.BrandMetadata({description: "", logo: "", socials: ""}),
+            SUSDAI_RESERVE
+        );
+        IBrandTreasury(susdaiTreasury).setFactory(FACTORY);
+        launch.setReserveEconomics(
+            SUSDAI_RESERVE,
+            ILaunchFactory.ReserveEconomics({
                 phantomQuote: 3_236e6,
                 graduationThreshold: 8_090e6,
                 launchFee: 1e6,
@@ -882,7 +1297,7 @@ contract LiveGen5MainnetForkTest is Test {
                 approved: false
             })
         );
-        launch.setPairTokenApproved(susdaiBrand, true);
+        launch.setReserveApproved(SUSDAI_RESERVE, true);
         launch.setLaunchEnabled(true);
         vm.stopPrank();
 
@@ -938,7 +1353,8 @@ contract LiveGen5MainnetForkTest is Test {
         assertEq(rec.phase, 1, "phase one did not sweep");
 
         uint256 before = factory.marketCount();
-        launch.graduateToMarket(token);
+        uint256 brandsBefore = susdai.allBrandTokensLength();
+        uint256 unitSeeded = _graduateToMarketAndReadSeed(token);
         rec = launch.getLaunchedToken(token);
 
         assertEq(rec.phase, 2, "did not graduate");
@@ -948,6 +1364,28 @@ contract LiveGen5MainnetForkTest is Test {
         assertEq(m.reservePool, SUSDAI_RESERVE, "market did not bind the sUSDai reserve");
         assertTrue(m.reservePool != RESERVE, "market fell back to the default reserve");
         assertEq(m.asset, token, "market trades the launched token");
+
+        // And it agrees with the default-reserve graduation on everything the non-default
+        // reserve could have broken: the quote is the launch's own brand, no `<SYM>.d` was
+        // appended to THIS reserve's registry, the market makes no claim on the dollar, and
+        // the float it locked was credited on the brand's own treasury — which is a
+        // `BeaconProxy` the sUSDai reserve deployed, so this is also the proof that the
+        // treasury beacon the rehearsal moved reaches brands outside the default group.
+        assertEq(m.brandToken, susdaiBrand, "the graduated pool is quoted in the launch's brand");
+        assertEq(
+            susdai.allBrandTokensLength(),
+            brandsBefore,
+            "graduation registered a dollar of its own on the sUSDai reserve"
+        );
+        assertTrue(
+            factory.isSharedQuote(rec.marketId), "the graduate claims the brand as its own unit"
+        );
+        assertGt(unitSeeded, 0, "the graduation seeded no liquidity");
+        assertEq(
+            IBrandTreasury(m.treasury).floatOf(m.feeVault),
+            unitSeeded,
+            "the sUSDai brand's treasury was not told what this pool locked"
+        );
     }
 
     // ─── 4. Income reaches the parties it is supposed to ─────────────────

@@ -1,0 +1,142 @@
+{
+  "reviewDate": "2026-09-21",
+  "onchain": {
+    "coverage_summary": "No actionable security findings identified in the assigned on-chain integration. Review was read-only and confined to the specified worktree. No validation commands, tests, builds, exploit payloads, network calls or edits were performed.\n\nInvariants checked by source inspection:\n\u2022 Pool identity: AssetMarketFactory.sol:1079\u20131093 accepts exactly 0x800000 at spacing 50 and reconstructs existing pools from their stored fee/spacing. Configuring the policy requires the matching hook, exact dynamic marker and a registered PoolId (DynamicFeePolicy.sol:415\u2013422). Changing the fee or spacing selects different liquidity, not an alternative fee for the same pool.\n\u2022 Governance: hook policy replacement is owner-only, resets its 48-hour delay on replacement, and rechecks hook binding at activation (ProtocolFeeHook.sol:300\u2013331). Pool configurations and calendar overlays require owner queueing and elapsed delays; permissionless application cannot substitute different values. Policy ownership is two-step and cannot be renounced. Keepers can set bounded overrides but cannot change configuration/calendar or clear overrides; guardians can clear but cannot set overrides (DynamicFeePolicy.sol:139\u2013206,270\u2013361).\n\u2022 Execution/accounting: beforeSwap resolves and flags the directional LP fee before exact-output and zero-skim returns (ProtocolFeeHook.sol:488\u2013516). v4 parses that override and uses it instead of slot0.lpFee (Hooks.sol:248\u2013280; Pool.sol:302\u2013307). Exact-input skims the specified input; exact-output skims the actual unspecified input in afterSwap. Hook ERC-6909 claims remain separate from core LP fee growth. MarketRouter settles returned deltas, and MarketLens performs real directional Quoter swaps rather than treating the marker as a rate.\n\u2022 Defensive reads: lpFeeFor enforces 140,000 remaining gas before a fixed 100,000-gas STATICCALL, copies only 32 returndata bytes, requires exactly 32 bytes and validates the full returned word against 100\u201330,000 (ProtocolFeeHook.sol:339\u2013364). Low gas reverts rather than choosing fallback. STATICCALL prevents state-changing callback/reentrancy, and the native policy's fee-read path makes no external call. No attacker-controlled path to select fallback for an otherwise healthy native policy was identified.\n\u2022 Fee bounds: the directional premium is capped before the relative override floor is calculated. Each live read enforces max(configured floor, ceil(current capped autonomous/2)), then the cap; expiry is inactive at equality. Applying a new pool configuration clears existing overrides (DynamicFeePolicy.sol:178\u2013183,214\u2013227,276\u2013293,366\u2013413).\n\u2022 Calendar: UTC transition instants use March's second Sunday at 07:00 UTC and November's first Sunday at 06:00 UTC; Gregorian leap-century arithmetic excludes February 29, 2100. Open is inclusive, close exclusive; early-close validation prevents inverted sessions. Unsupported timestamps select the configured closed baseline. Date conversion estimates the year arithmetically and only loops across bounded months, not all years since 1970, so late supported dates do not introduce a growing historical-year loop (UsEquityCalendar.sol:51\u2013198).\n\u2022 Storage: new hook policy fields follow observationStates (ProtocolFeeHook.sol:177\u2013185); ownership state is ERC-7201 namespaced and UUPS is stateless. No source-level collision was identified. Factory dynamic identity uses existing fields.\n\nAcknowledged residual risks, not findings: owner UUPS authority bypasses policy delays; replacement-policy validation proves only its reported hook binding, not immutability or native-policy bytecode. The global 5,000 fallback may exceed a pool cap or undercut its risk fee. Calendar maintenance, unexpected closures, compromised keepers renewing bounded overrides, and economic calibration remain operator risks; keeper revocation does not clear an existing override. The inspected on-chain architecture claims in FABLES_DYNAMIC_FEES.md agree with the implementation. No deployment or profitability assurance is implied.",
+    "findings": [],
+    "reviewed_paths": [
+      "src/markets/ProtocolFeeHook.sol",
+      "src/markets/DynamicFeePolicy.sol",
+      "src/markets/libraries/UsEquityCalendar.sol",
+      "src/markets/AssetMarketFactory.sol",
+      "src/markets/MarketRouter.sol",
+      "src/markets/MarketLens.sol",
+      "src/markets/PoolObservations.sol",
+      "lib/v4-core/src/PoolManager.sol",
+      "lib/v4-core/src/libraries/Hooks.sol",
+      "lib/v4-core/src/libraries/LPFeeLibrary.sol",
+      "lib/v4-core/src/libraries/Pool.sol",
+      "lib/openzeppelin-contracts-upgradeable/contracts/access/OwnableUpgradeable.sol",
+      "lib/openzeppelin-contracts-upgradeable/contracts/access/Ownable2StepUpgradeable.sol",
+      "lib/openzeppelin-contracts-upgradeable/contracts/proxy/utils/UUPSUpgradeable.sol",
+      "lib/openzeppelin-contracts/contracts/proxy/utils/UUPSUpgradeable.sol",
+      "lib/openzeppelin-contracts/contracts/access/Ownable2Step.sol",
+      "test/markets/DynamicFeeHook.t.sol",
+      "test/markets/DynamicFeePolicy.t.sol",
+      "test/markets/UsEquityCalendar.t.sol",
+      "docs/FABLES_DYNAMIC_FEES.md",
+      "docs/FABLES_KEEPER.md"
+    ],
+    "deferred": [
+      {
+        "reason": "Runtime verification belongs to the parent. In particular, the late-date gas test at DynamicFeeHook.t.sol:440\u2013467 first calls autonomousFee, warming policy configuration/calendar storage before the swap; its success alone would not establish a cold-access worst-case gas bound. Confirm cold policy reads with active overrides, overlapping ramps and calendar overlays under the actual compiler/deployment settings. No runtime gas-exhaustion finding is asserted.",
+        "paths": [
+          "test/markets/DynamicFeeHook.t.sol",
+          "src/markets/libraries/UsEquityCalendar.sol",
+          "src/markets/DynamicFeePolicy.sol"
+        ]
+      },
+      {
+        "reason": "Historical/deployed storage-layout compatibility was not independently established against committed 8198a40 bytecode/layout or a live proxy. The inspected upgrade test at DynamicFeeHook.t.sol:394\u2013429 upgrades between instances of the current implementation, not from the base implementation. Parent-owned baseline layout comparison and fork rehearsal remain necessary; current source append ordering itself appears sound.",
+        "paths": [
+          "src/markets/ProtocolFeeHook.sol",
+          "src/markets/AssetMarketFactory.sol",
+          "test/markets/DynamicFeeHook.t.sol"
+        ]
+      },
+      {
+        "reason": "Keeper documentation was checked for consistency with on-chain role, TTL and bound semantics only. Full off-chain keeper, frontend, external deployment and economic/oracle-manipulation audits are outside this assigned scope.",
+        "paths": [
+          "docs/FABLES_KEEPER.md"
+        ]
+      }
+    ]
+  },
+  "offchain": {
+    "coverage_summary": "Source-only audit completed in the assigned StableLaunchpad-fables worktree. One medium-severity signing-domain finding; no additional actionable issue found in dynamic fee resolution, canonical/shared quote math, PoolKey validation, static compatibility, public wire decoding, or inspected web/mobile fee consumers. Reviewed reference authentication, token ordering/decimal normalization, negative TWAP rounding, liquidity/freshness/divergence checks, partial override/no-write decisions, pinned snapshots, execution simulation and receipt checks. Ordinary same-chain snapshot-to-inclusion changes, reference venue economic trust, owner upgrade authority, and lack of reproduction of private Fables alpha were treated as acknowledged risks, not findings. No files changed, commands executed, tests/builds run, or network calls made.",
+    "findings": [
+      {
+        "rule_id": "FABLES-OFFCHAIN-001",
+        "title": "Bind cast signing to the chain ID that passed the keeper checks",
+        "summary": "Both snapshots validate settings.chainId, but the executor receives no chain ID and invokes cast send without an explicit signing-chain argument. An RPC proxy/failover that routes cast's later requests to another network can make cast resolve and sign for that network instead of the reviewed network. With a same-address policy and authorized/funded keeper on both networks, this produces an unintended fee write; otherwise it can still spend gas on the wrong network. Receipt validation occurs after broadcast and cannot prevent this. Pass the validated chain ID into the executor and set cast's explicit signing-chain option. This is an explicit network-boundary failure, not ordinary same-chain snapshot staleness.",
+        "severity": "medium",
+        "confidence": "medium",
+        "category": "transaction-domain-binding",
+        "locations": [
+          {
+            "path": "script/dynamic-fee-keeper.mjs",
+            "start_line": 588,
+            "end_line": 594,
+            "role": "Signing sink omits validated chain ID"
+          },
+          {
+            "path": "script/dynamic-fee-keeper.mjs",
+            "start_line": 660,
+            "end_line": 667,
+            "role": "Executor arguments omit settings.chainId"
+          }
+        ],
+        "cwe": [
+          "CWE-367"
+        ],
+        "evidence": [
+          {
+            "label": "Validated chain is not passed to signing",
+            "explanation": "The executor accepts account, sender, RPC URL, destination and calldata only. The child process constructs the transaction independently after the chain checks and pinned simulation.",
+            "excerpt": "function castExecutor({ account, sender, rpcUrl, to, calldata }) {\n...\n[\"send\", to, calldata, \"--rpc-url\", rpcUrl, \"--account\", account, \"--from\", sender, \"--json\"]"
+          },
+          {
+            "label": "Reproduction outline",
+            "explanation": "Place a switching RPC proxy before two disposable chains, with the same policy address and funded authorized keeper on both. Route snapshot reads and eth_call to chain A, then route cast's transaction-building requests to chain B. The signing invocation contains no explicit binding to A. Source inspection establishes the missing propagation; the installed cast version's default-chain behavior and proxy scenario were not executed, as required by this assignment."
+          }
+        ],
+        "optionalProperties": {
+          "minimal_fix": "Pass settings.chainId into castExecutor and supply cast's explicit signing-chain option. A transaction signed for the checked chain must be rejected by a different-chain endpoint.",
+          "accepted_risk_distinction": "Normal price/configuration movement between the pinned snapshot and inclusion remains inherent and was not separately reported."
+        }
+      }
+    ],
+    "reviewed_paths": [
+      "docs/FABLES_KEEPER.md",
+      "docs/FABLES_DYNAMIC_FEES.md",
+      "script/dynamic-fee-keeper.mjs",
+      "script/dynamic-fee-keeper.test.mjs",
+      "backend/market-reader/src/quote-v4.ts",
+      "backend/market-reader/src/asset-markets-read.ts",
+      "backend/market-reader/src/public-markets.ts",
+      "backend/market-reader/src/v4-pool-math.ts",
+      "backend/market-reader/src/asset-markets.ts",
+      "web-stable/packages/market-core/src/quote-v4.ts",
+      "web-stable/packages/market-core/src/asset-markets-read.ts",
+      "web-stable/packages/market-core/src/v4-pool-math.ts",
+      "web-stable/packages/market-core/src/asset-markets.ts",
+      "web-stable/src/lib/market-fees.ts",
+      "web-stable/src/web3/quote-v4.ts",
+      "web-stable/src/lib/public-markets.ts",
+      "web-stable/src/config/platform-contracts.ts",
+      "web-stable/src/features/admin/admin-markets.tsx",
+      "web-stable/src/features/asset-markets/use-trade-lifecycle.ts",
+      "web-stable/src/features/asset-markets/quote-reads.ts",
+      "web-stable/src/features/asset-markets/trade.tsx",
+      "web-stable/src/features/asset-markets/zap-liquidity.tsx",
+      "web-stable/src/features/markets/trade-preview.tsx",
+      "mobile/src/services/chain-service.ts",
+      "src/markets/DynamicFeePolicy.sol",
+      "src/pool/SharedReservePool.sol"
+    ],
+    "deferred": [
+      {
+        "reason": "Execution-path verification intentionally deferred to the parent: no live/fork RPC, cast invocation, switching-proxy reproduction, tests, builds, linters or formatters were permitted. In particular, default signing-chain behavior of the installed cast version remains unexercised; the finding identifies the source-level missing chain binding.",
+        "paths": [
+          "script/dynamic-fee-keeper.mjs"
+        ]
+      }
+    ]
+  },
+  "resolutions": {
+    "FABLES-OFFCHAIN-001": {
+      "status": "fixed",
+      "change": "runKeeper passes settings.chainId; castExecutor uses cast send --chain with that value.",
+      "verification": "Installed cast help confirms the option. An unlocked local-Anvil smoke broadcast without explicit chain and rejected a mismatched explicit chain before broadcast. Encrypted keystore and switching-RPC path was not executed."
+    }
+  }
+}

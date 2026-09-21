@@ -25,10 +25,17 @@ sell:  asset --v4 swap--> brand --redeem 1:1 less fee--> USDG
 | Reserve swap | `SharedReservePool.swap(brandIn, brandOut, amount, receiver)` | `amount`, same reserve only | burns caller's brand, no approval, no fee |
 | PSM window (optional) | `BrandPsm.sellGem/buyGem` — one per brand, see §6 | `tin`/`tout` | Maker's `DssLitePsm` surface over the two rows above |
 
-**One brand per launchpad graduate; the equity markets share one.** A brand is not one token per
-chain. Each launchpad graduate mints its own — `SDOGE.d`, `ABR.d`, `CORGIGG.d` — while the
-tokenized equities (ids 13–15) all quote against the same `AIUSD`. Markets 13–15 are therefore
-fungible on their dollar side; 16, 17 and 18 are not.
+**Brands are shared, not one per market.** A brand is not one token per chain and it is not one
+token per pool. The tokenized equities (ids 13-15) all quote against the same `AIUSD` and are
+therefore fungible on their dollar side. The three launchpad graduates that are live today (16, 17
+and 18) each minted their own — `SDOGE.d`, `ABR.d`, `CORGIGG.d` — and are fungible with nothing.
+
+**The graduates are the exception and it is being retired.** A pending contract change stops
+graduation from minting a unit: a launch keeps the dollar it raised in, so every graduate after the
+change quotes an existing shared brand and registers nothing new on the reserve. Markets 16, 17 and
+18 are not migrated and keep their `.d` units. Ask the factory rather than the symbol —
+`AssetMarketFactory.isSharedQuote(marketId)` is the live answer, and it will read `true` for future
+graduates.
 
 Six live markets, every one with `fee` 5000 (0.50%), `tickSpacing` 50 and `hooks`
 `0xc9932584c5154e4F58313a2e5423522E74e540Cc`:
@@ -150,9 +157,27 @@ donate.
   that disagrees with its own address, and nothing would revert — but core would keep
   dispatching on the address bits, so the callback set a pool sees is still fixed.
 
-  Live implementation as of 2026-09-20: `0xd4AC6b17338866E43E1922cfb563A81Ff36b425B`, which is
-  the build that added the announced increase. Do not pin an implementation address in your
+  Live implementation as of 2026-09-21: `0xfe4014D1ee20cC77349fAd24C1e9CeA69b03db03`, which is
+  the build that added the keeper-set LP fee (`setFeeKeeper`, `setPoolLpFee`) on top of
+  `0xd4AC6b17338866E43E1922cfb563A81Ff36b425B`, the build that added the announced increase.
+  Nothing about the skim changed between the two. Do not pin an implementation address in your
   integration; read the ERC-1967 slot if you need it.
+
+### Dynamic LP fee PoolKeys
+
+Source support for newly created markets may use the exact v4 dynamic fee flag `0x800000`; this
+does not state that any current deployment or listed market uses it. The flag remains part of the
+`PoolKey` and pool id. It is an identity value, not an 838.8608% fee.
+
+For the simplified implementation, a flagged pool uses Uniswap's native stored `slot0.lpFee`
+in both directions. Read it through StateView or the PoolManager storage reader; no separate
+hook LP-fee getter or per-swap policy simulation is required. Static keys retain `key.fee`.
+Continue accounting for this hook's separate input skim, and do not quote unreadable fee state.
+
+The owner or a fee-only keeper may update that stored LP fee within 100–50,000 pips (0.01–5%).
+It persists until another update. Fees can change between quote and execution, so refresh pool
+state and retain input/output limits. The revised application packet and upstream adapter
+coordination are deferred; this source description does not assert aggregator acceptance.
 
 ## 3. Discovery
 

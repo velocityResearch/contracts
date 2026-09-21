@@ -1,0 +1,83 @@
+{
+  "version": "1.0",
+  "chainId": "4663",
+  "createdAt": 1790032263000,
+  "meta": {
+    "name": "Wire graduation, opt AIUSD in, set rates and reserve economics, authorise the fee keeper",
+    "description": "Runbook steps 7-10, 11d and 11i in order: locker.setGraduation (one-shot), LaunchFactory.setGraduation, AssetMarketFactory.setLaunchpad, LaunchFactory.setLaunchDeployer (the segmented-curve deployer; without it every launch after the upgrade reverts), AIUSD treasury setFactory (one-way), the three graduated rates, setReserveEconomics for the sUSDai reserve at AIUSD's live figures, ProtocolFeeHook.setFeeKeeper. Nothing here opens a dynamic-fee market.",
+    "txBuilderVersion": "1.16.5",
+    "createdFromSafeAddress": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373"
+  },
+  "transactions": [
+    {
+      "to": "0x27dA5A098ea5d8ef2a0c95Df5Dc79fe6E2440244",
+      "value": "0",
+      "data": "0x56c077e5000000000000000000000000254c5ad46dff09c5f2e646c3221b5125ede649a9",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0x95fe000285DA7797cC01394cCc410628B26e898d",
+      "value": "0",
+      "data": "0x56c077e5000000000000000000000000254c5ad46dff09c5f2e646c3221b5125ede649a9",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0x22AA61c589B90731752236c07d1455D0065bfc79",
+      "value": "0",
+      "data": "0x36f4c0eb000000000000000000000000254c5ad46dff09c5f2e646c3221b5125ede649a9",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0x95fe000285DA7797cC01394cCc410628B26e898d",
+      "value": "0",
+      "data": "0x3a9391e800000000000000000000000050571945e7cdba099745a20deb762deb81f81331",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0xE2d144F8b18d4743fdC4D74e4AE621307e443e38",
+      "value": "0",
+      "data": "0x5bb4780800000000000000000000000022aa61c589b90731752236c07d1455d0065bfc79",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0x95fe000285DA7797cC01394cCc410628B26e898d",
+      "value": "0",
+      "data": "0x23e13b4900000000000000000000000028569c1716ef81f307d666a1ec08bdae92ac0373",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0x95fe000285DA7797cC01394cCc410628B26e898d",
+      "value": "0",
+      "data": "0x728466620000000000000000000000000000000000000000000000000000000000000bb8",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0x95fe000285DA7797cC01394cCc410628B26e898d",
+      "value": "0",
+      "data": "0xa24bf89c0000000000000000000000000000000000000000000000000000000000000fa0",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0x95fe000285DA7797cC01394cCc410628B26e898d",
+      "value": "0",
+      "data": "0x93b23c95000000000000000000000000cfa888f6f124452fde0c7348328a7c73a8fd33b200000000000000000000000000000000000000000000000000000000c0e1710000000000000000000000000000000000000000000000000000000001e2339a8000000000000000000000000000000000000000000000000000000000000f424000000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000001",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0xc9932584c5154e4F58313a2e5423522E74e540Cc",
+      "value": "0",
+      "data": "0x21e5043f000000000000000000000000467ca912943e85a0b0e72b7e1190129762481eec",
+      "contractMethod": null,
+      "contractInputsValues": null
+    }
+  ]
+}

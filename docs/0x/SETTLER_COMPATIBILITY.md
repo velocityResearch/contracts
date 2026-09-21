@@ -181,6 +181,13 @@ dollar, exact-input.
 
 Exact to the wei on all six.
 
+The `.d` pair labels above name the six pools **as measured at that block**, not a rule about how
+pools are quoted. Launchpad graduation is changing so that a graduate keeps the dollar its launch
+raised in rather than minting a `<SYM>.d`; these six are not migrated, and future graduates will
+carry a shared brand instead. Nothing in this section depends on which brand a pool quotes — the
+equivalence is a property of the hook, which is why rows 13-15 on shared `AIUSD` and rows 16-18 on
+their own units agree equally well.
+
 What this does and does not prove, stated precisely. `V4Quoter` performs a real swap inside the
 PoolManager and reverts with the result, so it exercises the real hook along the real code path,
 including the `afterSwap` return delta. The agreement therefore shows that the protocol fee is

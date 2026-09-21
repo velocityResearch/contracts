@@ -61,7 +61,7 @@ plainly in its package comment: explicit registration in `HookFactories` takes p
 fallback. It is also the closest template, and this plugin is deliberately shaped like it so a
 reviewer can diff the two.
 
-## The four things a reviewer should look at
+## The five things a reviewer should look at
 
 1. **The whole fee is charged in `afterSwap`, on the swap's UNSPECIFIED leg.** This is the
    claim to check first, because it is the one that changed. `beforeSwap` returns
@@ -103,6 +103,16 @@ reviewer can diff the two.
    `TestAfterSwap_ExactOut_IsFlatNotGrossedUp` pins the difference (5,000,000 against 5,025,125
    on a 1,000-unit leg at 0.50%) so a refactor cannot quietly align this with the neighbouring
    hooks that do gross up.
+5. **The LP fee is the pool's, not the hook's, and may be dynamic.** Markets created from
+   2026-09-21 on may carry `PoolKey.fee = 0x800000`, Uniswap's dynamic-fee flag. Their LP rate
+   is the stored `slot0.lpFee` — seeded at 5,000 by registration and moved by
+   `ProtocolFeeHook.setPoolLpFee` (owner or one authorised keeper, 100–50,000 pips, both
+   directions, no expiry, nothing per swap). `BeforeSwap` returns no `SwapFee` override, so
+   dex-lib keeps the rate the tracker read from `StateView.getSlot0` on that cycle, which is
+   exactly what `Pool.swap` charges. `TestDynamicFeePool_QuotesAtTheTrackedStoredRate` runs the
+   whole v4 simulator over a flagged pool and a static pool at the same tracked rate and
+   requires them to quote to the wei. `PoolManager.updateDynamicLPFee` emits nothing; the hook
+   emits `PoolLpFeeUpdated(poolId, feePips)`.
 
 ## The precedent to follow
 

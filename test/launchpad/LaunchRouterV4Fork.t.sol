@@ -16,6 +16,7 @@ import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 
 import {SharedReservePool} from "../../src/pool/SharedReservePool.sol";
+import {PoolBrandTreasury} from "../../src/pool/PoolBrandTreasury.sol";
 import {MorphoBlueYieldSource} from "../../src/yield/MorphoBlueYieldSource.sol";
 import {AssetMarketFactory} from "../../src/markets/AssetMarketFactory.sol";
 import {LpRewardDistributor} from "../../src/markets/LpRewardDistributor.sol";
@@ -191,14 +192,18 @@ contract LaunchRouterV4ForkTest is Test, StackFixture {
         _deployLaunchpad();
 
         // The two brands of one reserve this suite trades between, registered the way any
-        // community registers theirs. Only the quote brand carries launch economics.
-        (quoteBrand,) = marketFactory.registerBrand("Launch Dollar", "launchUSD");
+        // community registers theirs. Launch terms belong to the reserve, so both brands
+        // carry them; what still separates the quote brand is the float-share opt-in, which
+        // a launch re-reads for its quote brand every time and which only the quote brand's
+        // treasury names here.
+        address quoteTreasury;
+        (quoteBrand, quoteTreasury) = marketFactory.registerBrand("Launch Dollar", "launchUSD");
         (altBrand,) = marketFactory.registerBrand("Alt Dollar", "altUSD");
+        PoolBrandTreasury(quoteTreasury).setFactory(address(marketFactory));
         vm.prank(owner);
-        launchFactory.setPairTokenEconomics(
-            quoteBrand,
-            LaunchFactory.PairTokenEconomics({
-                reserve: address(reserve),
+        launchFactory.setReserveEconomics(
+            address(reserve),
+            LaunchFactory.ReserveEconomics({
                 phantomQuote: PHANTOM_QUOTE,
                 graduationThreshold: GRADUATION_THRESHOLD,
                 launchFee: LAUNCH_FEE,

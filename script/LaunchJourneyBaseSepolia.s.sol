@@ -37,11 +37,16 @@ contract LaunchJourneyBaseSepolia is Script {
         IERC20 brand = IERC20(vm.envAddress("QUOTE_BRAND"));
 
         require(factory.launchEnabled(), "launchEnabled() is false");
-        (, uint256 phantom, uint256 threshold, uint256 launchFee, uint8 decimals, bool approved) =
-            factory.pairTokenEconomics(address(brand));
-        require(approved, "quote brand is not approved");
+        // Economics hang off the brand's reserve; `launchEconomics` resolves it and reverts if
+        // the brand is not one this launchpad will quote.
+        (, LaunchFactory.ReserveEconomics memory economics) =
+            factory.launchEconomics(address(brand));
+        require(economics.approved, "quote brand's reserve is not open for launches");
+        uint256 threshold = economics.graduationThreshold;
+        uint256 launchFee = economics.launchFee;
+        uint8 decimals = economics.decimals;
         console.log("threshold (brand units):", threshold);
-        console.log("phantom quote:", phantom);
+        console.log("phantom quote:", economics.phantomQuote);
         console.log("launch fee:", launchFee);
         console.log("brand decimals:", decimals);
 

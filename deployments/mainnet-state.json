@@ -1,10 +1,10 @@
 {
   "$schema": "generated file - do not hand-edit",
   "generatedBy": "script/sync-mainnet-state.mjs",
-  "generatedAt": "2026-09-20T23:17:42.744Z",
+  "generatedAt": "2026-09-21T23:23:48.038Z",
   "chainId": 4663,
-  "blockNumber": 68326136,
-  "blockTimestamp": "2026-09-20T23:17:38.000Z",
+  "blockNumber": 69188834,
+  "blockTimestamp": "2026-09-21T23:23:43.000Z",
   "rpcUrl": "https://rpc.mainnet.chain.robinhood.com",
   "addressBook": [
     "deployments/asset-markets-mainnet-v6.json",
@@ -21,7 +21,7 @@
       "feeHook": "0xc9932584c5154e4F58313a2e5423522E74e540Cc",
       "poolManager": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
       "positionManager": "0x58daec3116aae6D93017bAAea7749052E8a04fA7",
-      "launchpad": "0xF5f4Eb45347ec69CB56D1c682a0FdA83bb9f4efC",
+      "launchpad": "0x254C5Ad46dFf09C5F2e646C3221B5125EDe649A9",
       "protocolTreasury": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373",
       "protocolBpsOnYield": 0,
       "protocolFeePipsOnTrading": 5000,
@@ -175,7 +175,7 @@
         "yieldSource": "0x8e4E5e5EE25DF4721D845600F82bf2Bca48Fa358",
         "guard": "0x013D1974F8215a12280e6b9a33F9732277F38C0e",
         "paused": false,
-        "totalAssetsRaw": "1000444",
+        "totalAssetsRaw": "1000551",
         "totalPooledSupplyRaw": "1000000",
         "redemptionFeeBps": 0,
         "liabilityCapRaw": "0",
@@ -188,6 +188,13 @@
         "owner": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373",
         "pendingOwner": "0x0000000000000000000000000000000000000000",
         "approvedOnFactory": false,
+        "launchEconomics": {
+          "phantomQuoteRaw": "0",
+          "graduationThresholdRaw": "0",
+          "launchFeeRaw": "0",
+          "declaredDecimals": 0,
+          "openForLaunches": false
+        },
         "brands": [
           {
             "token": "0x53b20867df5e2CFeBB5B324A39A7640F3Bf4f6a2",
@@ -234,7 +241,7 @@
             "outstanding": "0"
           }
         ],
-        "totalAssets": "1.000444",
+        "totalAssets": "1.000551",
         "totalPooledSupply": "1",
         "liabilityCap": "0",
         "collateralisationNote": "fully backed: totalAssets >= totalPooledSupply"
@@ -246,19 +253,26 @@
         "yieldSource": "0x460f319E43428387bff58ec262C992Ec7DA22fDc",
         "guard": "0x013D1974F8215a12280e6b9a33F9732277F38C0e",
         "paused": false,
-        "totalAssetsRaw": "35276269401",
-        "totalPooledSupplyRaw": "35067728991",
+        "totalAssetsRaw": "32449661900",
+        "totalPooledSupplyRaw": "32235136834",
         "redemptionFeeBps": 20,
         "liabilityCapRaw": "10000000000000",
         "lossCarryforwardRaw": "0",
-        "cumulativeYieldPerToken": "6607848526935922",
-        "lastAccrualAssetsRaw": "35274934283",
+        "cumulativeYieldPerToken": "6825335286594592",
+        "lastAccrualAssetsRaw": "32449652848",
         "brandCount": 31,
         "brandTokenBeacon": "0x1964b405C09CF252d835A80556536C86dcbE105F",
         "treasuryBeacon": "0xf8b758dfb9d22448Ab13C7FcC1f23b75A998C34E",
         "owner": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373",
         "pendingOwner": "0x0000000000000000000000000000000000000000",
         "approvedOnFactory": true,
+        "launchEconomics": {
+          "phantomQuoteRaw": "3236000000",
+          "graduationThresholdRaw": "8090000000",
+          "launchFeeRaw": "1000000",
+          "declaredDecimals": 6,
+          "openForLaunches": true
+        },
         "brands": [
           {
             "token": "0xE20cE31a996f07b3d70F9C840e6810F0f572C884",
@@ -275,12 +289,12 @@
             "token": "0xE7BB388959d89f809BE24da16A1DaBa0dC58E596",
             "symbol": "AIUSD",
             "decimals": 6,
-            "totalSupplyRaw": "6787618422",
+            "totalSupplyRaw": "6664350147",
             "registered": true,
             "treasury": "0xE2d144F8b18d4743fdC4D74e4AE621307e443e38",
-            "outstandingRaw": "6787618422",
-            "accruedYieldRaw": "0",
-            "outstanding": "6787.618422"
+            "outstandingRaw": "6664350147",
+            "accruedYieldRaw": "1400881",
+            "outstanding": "6664.350147"
           },
           {
             "token": "0xf6FFa10ca64fB5A493c3E032047d2b8049DD05Ce",
@@ -539,34 +553,34 @@
             "token": "0xA138D500c4f96B6Fa319719bA325e6DE62C567b4",
             "symbol": "SDOGE.d",
             "decimals": 6,
-            "totalSupplyRaw": "17990516005",
+            "totalSupplyRaw": "15660898816",
             "registered": true,
             "treasury": "0xA9050F053441a3EcB4EEee9E70f4f46dA62647E7",
-            "outstandingRaw": "17990516005",
-            "accruedYieldRaw": "151055054",
-            "outstanding": "17990.516005"
+            "outstandingRaw": "15660898816",
+            "accruedYieldRaw": "154699085",
+            "outstanding": "15660.898816"
           },
           {
             "token": "0x1Aa1526302625de02791538DB45c45E96bb75A70",
             "symbol": "ABR.d",
             "decimals": 6,
-            "totalSupplyRaw": "3978715458",
+            "totalSupplyRaw": "3796925872",
             "registered": true,
             "treasury": "0x4E609f9307dc0D49798B0A4d260cAd8047e0B5Ef",
-            "outstandingRaw": "3978715458",
-            "accruedYieldRaw": "21756790",
-            "outstanding": "3978.715458"
+            "outstandingRaw": "3796925872",
+            "accruedYieldRaw": "22335356",
+            "outstanding": "3796.925872"
           },
           {
             "token": "0xe0588f17797e79B51a42CBE4bEbab0C1241F98a4",
             "symbol": "CORGIGG.d",
             "decimals": 6,
-            "totalSupplyRaw": "6301779106",
+            "totalSupplyRaw": "6103861999",
             "registered": true,
             "treasury": "0x23721D04b16B760AC434AfF1C3A2be8987eCd55C",
-            "outstandingRaw": "6301779106",
-            "accruedYieldRaw": "33493577",
-            "outstanding": "6301.779106"
+            "outstandingRaw": "6103861999",
+            "accruedYieldRaw": "34841531",
+            "outstanding": "6103.861999"
           },
           {
             "token": "0xFB00918E6dd7fE75a42141A1AFbfA21a4AC9112b",
@@ -602,8 +616,8 @@
             "outstanding": "0"
           }
         ],
-        "totalAssets": "35276.269401",
-        "totalPooledSupply": "35067.728991",
+        "totalAssets": "32449.6619",
+        "totalPooledSupply": "32235.136834",
         "liabilityCap": "10000000",
         "collateralisationNote": "fully backed: totalAssets >= totalPooledSupply"
       }
@@ -614,8 +628,8 @@
         "consumer": "0xdB485351d953F10FAA7c820B7648f6E91d9Cd9F3",
         "asset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
         "balanceOfRaw": "0",
-        "totalAssetsRaw": "341616590992699",
-        "withdrawableRaw": "1000440",
+        "totalAssetsRaw": "342842281849068",
+        "withdrawableRaw": "1000547",
         "owner": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373",
         "pendingOwner": "0x0000000000000000000000000000000000000000",
         "susdai": null,
@@ -624,19 +638,19 @@
           "marketId": "0xc845da65a020ddca5f132efa8fea79676d8edfdea504226a4c01e7a9e34cddd6"
         },
         "balanceOf": "0",
-        "withdrawable": "1.00044"
+        "withdrawable": "1.000547"
       },
       {
         "address": "0x460f319E43428387bff58ec262C992Ec7DA22fDc",
         "consumer": "0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2",
         "asset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
-        "balanceOfRaw": "35276269400",
-        "totalAssetsRaw": "35276269400",
-        "withdrawableRaw": "35276269400",
+        "balanceOfRaw": "32449661899",
+        "totalAssetsRaw": "32449661899",
+        "withdrawableRaw": "32449661899",
         "owner": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373",
         "pendingOwner": "0x0000000000000000000000000000000000000000",
         "susdai": {
-          "availableLiquidityRaw": "35276269400",
+          "availableLiquidityRaw": "32449661899",
           "remoteValueRaw": "0",
           "remoteValueUpdatedAt": null,
           "outboundInFlightRaw": "0",
@@ -650,12 +664,12 @@
           "keeper": "0x467Ca912943e85A0B0e72B7E1190129762481EEC",
           "controller": "0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2",
           "hub": "0x740ddd200D9Ee605F25239Ba701bdd89161034b1",
-          "availableLiquidity": "35276.2694",
+          "availableLiquidity": "32449.661899",
           "remoteValue": "0"
         },
         "morpho": null,
-        "balanceOf": "35276.2694",
-        "withdrawable": "35276.2694"
+        "balanceOf": "32449.661899",
+        "withdrawable": "32449.661899"
       }
     ],
     "beacons": [
@@ -682,7 +696,7 @@
           "poolBrandTreasury"
         ],
         "orphaned": false,
-        "implementation": "0xb2Dc3fdDBa4A892184947575430FDdB1DacC06B9",
+        "implementation": "0x317d1C9319E461658F6716382Dcf81d0C39C8A77",
         "owner": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373"
       },
       {
@@ -694,7 +708,7 @@
           "brandFeeVault"
         ],
         "orphaned": false,
-        "implementation": "0xB714D2E06a081929824381Fc360ada2c2e7f9fcF",
+        "implementation": "0x57f700f8AbC9FB73B9Ee6e5297304421f041065D",
         "owner": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373"
       },
       {
@@ -706,7 +720,7 @@
           "lpRewardDistributor"
         ],
         "orphaned": false,
-        "implementation": "0xad46f2a29317096047aD6D036dDa24Bf260C5f62",
+        "implementation": "0xCe9F3b9e864EDD05a64544B228c509E6Ff63fb44",
         "owner": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373"
       }
     ],
@@ -716,7 +730,6 @@
       "launchEnabled": true,
       "launchConfigCount": 1,
       "graduatedCreatorShareBps": 4000,
-      "graduatedCreatorYieldShareBps": 4000,
       "protocolFeeShareBps": 3000,
       "protocolFeeRecipient": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373",
       "maxCreatorTaxBps": 1000,
@@ -725,9 +738,9 @@
       "marketFactory": "0x22AA61c589B90731752236c07d1455D0065bfc79",
       "positionManager": "0x58daec3116aae6D93017bAAea7749052E8a04fA7",
       "feeEscrow": "0xb1BeEbb3c077705273bcC4F80f560F43941205b6",
-      "graduation": "0xF5f4Eb45347ec69CB56D1c682a0FdA83bb9f4efC",
+      "graduation": "0x254C5Ad46dFf09C5F2e646C3221B5125EDe649A9",
       "graduationGuard": "0xb3f7d9508De12D70FCaa8ef5cfEA0f5f7F38B91B",
-      "launchDeployer": "0x7979708A371E9f9dDb43A432595c3F59f77dd5E7",
+      "launchDeployer": "0x50571945e7CdBa099745A20Deb762deB81f81331",
       "launchForwarder": "0xf763CA4670Fa9eCB53821352B13450F514889C79",
       "owner": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373",
       "pendingOwner": "0x0000000000000000000000000000000000000000",
@@ -925,25 +938,27 @@
           "decimals": 6,
           "totalSupplyRaw": "0",
           "totalSupply": "0",
-          "reserve": "0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2",
-          "phantomQuoteRaw": "3236000000",
-          "graduationThresholdRaw": "8090000000",
-          "launchFeeRaw": "1000000",
-          "declaredDecimals": 6,
-          "approved": true
+          "reserve": null,
+          "quotable": false,
+          "launchable": false,
+          "phantomQuoteRaw": null,
+          "graduationThresholdRaw": null,
+          "launchFeeRaw": null,
+          "declaredDecimals": null
         },
         {
           "address": "0xE7BB388959d89f809BE24da16A1DaBa0dC58E596",
           "symbol": "AIUSD",
           "decimals": 6,
-          "totalSupplyRaw": "6787618422",
-          "totalSupply": "6787.618422",
+          "totalSupplyRaw": "6664350147",
+          "totalSupply": "6664.350147",
           "reserve": "0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2",
+          "quotable": true,
+          "launchable": true,
           "phantomQuoteRaw": "3236000000",
           "graduationThresholdRaw": "8090000000",
           "launchFeeRaw": "1000000",
-          "declaredDecimals": 6,
-          "approved": true
+          "declaredDecimals": 6
         }
       ]
     },
@@ -1342,11 +1357,11 @@
       },
       "protocolFeeHook": {
         "proxy": "0xc9932584c5154e4F58313a2e5423522E74e540Cc",
-        "implementation": "0xd4AC6b17338866E43E1922cfb563A81Ff36b425B"
+        "implementation": "0xfe4014D1ee20cC77349fAd24C1e9CeA69b03db03"
       },
       "assetMarketFactory": {
         "proxy": "0x22AA61c589B90731752236c07d1455D0065bfc79",
-        "implementation": "0x45Ce2F93aD46d1393Eff5da56fFc4537740022C0"
+        "implementation": "0x77153c0482e393375F25cbdBfE47e204d22cF951"
       },
       "marketRouter": {
         "proxy": "0x7553919210B172438853C3694Fd88fAfD4bE3Eb4",
@@ -1358,7 +1373,7 @@
       },
       "launchFactory": {
         "proxy": "0x95fe000285DA7797cC01394cCc410628B26e898d",
-        "implementation": "0xFCC13E959E4e441F0d83dd05B4dfaEA7CE459be3"
+        "implementation": "0x1fd586D714F66c120aa258ce29671634Cff556bC"
       }
     },
     "selectorPresence": [
@@ -1392,7 +1407,7 @@
       },
       {
         "proxy": "protocolFeeHook",
-        "implementation": "0xd4AC6b17338866E43E1922cfb563A81Ff36b425B",
+        "implementation": "0xfe4014D1ee20cC77349fAd24C1e9CeA69b03db03",
         "signature": "MAX_FEE_PIPS()",
         "selector": "0x4dbeb3e3",
         "presentInRuntimeCode": true
@@ -1406,12 +1421,12 @@
       "asset": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
       "paused": false,
       "owner": "0x5f43E1e732c7aBdbbC73F9d1367320D9040C872a",
-      "totalAssetsRaw": "5508479",
-      "totalAssets": "5.508479",
+      "totalAssetsRaw": "5509070",
+      "totalAssets": "5.50907",
       "totalPooledSupplyRaw": "5288461",
       "totalPooledSupply": "5.288461",
       "brandCount": 11,
-      "residualNote": "0.220018 USDG of the reserve's balance is in excess of outstanding pooled supply; the remainder backs brand tokens still held by third parties and stays redeemable 1:1."
+      "residualNote": "0.220609 USDG of the reserve's balance is in excess of outstanding pooled supply; the remainder backs brand tokens still held by third parties and stays redeemable 1:1."
     },
     "factory": {
       "address": "0xbE2fb491C37F19E723F86A8cAcA625B4Ba75a5E7",

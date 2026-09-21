@@ -67,18 +67,21 @@ interface ILaunchFactory {
     /// The live creator fee recipient. Post-graduation payers (the locker) read this at
     /// collect time rather than holding a copy, so the 2-step handover has one record.
     function creatorFeeRecipientOf(address token) external view returns (address);
-    /// The creator's share of a locked position's float-yield rewards, in bps. Read live by
-    /// the locker at collect time rather than snapshotted into the launch, which is the whole
-    /// reason it is a second knob: the LP-fee split is a term the creator is sold and is
-    /// therefore frozen per launch, while the yield on a market's float is the reserve's own
-    /// and one change has to reach every locked position at once.
-    function graduatedCreatorYieldShareBps() external view returns (uint16);
-    /// The LP fund's share of BOTH post-graduation legs — the locked position's LP fees and
-    /// its float yield — in bps. Read live by the locker for the same reason the yield share
-    /// is: the fund's mandate is still being decided, so its cut has to stay tunable, and it
-    /// is carved out of the PROTOCOL's remainder rather than the creator's frozen share so
-    /// that tuning it can never reprice a term a creator was sold.
+    /// The LP fund's share of a locked position's LP fees, in bps. Read live by the locker
+    /// rather than snapshotted, because the fund's mandate is still being decided, so its cut
+    /// has to stay tunable — and it is carved out of the PROTOCOL's remainder rather than the
+    /// creator's frozen share, so that tuning it can never reprice a term a creator was sold.
+    ///
+    /// There is no yield knob beside it any more. A position the CURRENT locker records
+    /// renounces its reward stream at `recordPosition`, so float yield never reaches that
+    /// locker and has nothing to split: every wei of it belongs to the liquidity providers
+    /// who took risk for it.
     function graduatedLpFundShareBps() external view returns (uint16);
+    /// The creator's share of a locked position's FLOAT YIELD, in bps. Kept solely for the
+    /// `LaunchLocker` deployed before the shared-quote change, which reads it unconditionally
+    /// in `collect()` for the positions it already custodies. Not settable, and never read by
+    /// the current locker.
+    function graduatedCreatorYieldShareBps() external view returns (uint16);
     function launchCount() external view returns (uint256);
     function launchAt(uint256 index) external view returns (address token);
     function graduate(address token) external; // phase 1, permissionless
@@ -128,13 +131,11 @@ interface ILaunchGraduation {
         uint256 quoteAmount; // swept real quote, pairToken units
         uint256 tokenAmount; // swept tokens (whole remaining supply)
         uint256 phantomQuote; // to preserve the terminal price: seed tokens = tokenAmount·quote/(quote+phantom)
-        string unitName;
-        string unitSymbol;
     }
 
     struct Result {
         uint256 marketId;
-        address unit;
+        address unit; // the market's quote brand, which is the launch's own `pairToken`
         bytes32 poolId;
         uint256 positionId;
         uint256 unitSeeded;
@@ -148,9 +149,9 @@ interface ILaunchLocker {
     struct LockedPosition {
         uint256 tokenId;
         address distributor; // LpRewardDistributor the NFT is staked in
-        address unit; // the market unit (reward token and one fee currency)
+        address unit; // the market's quote brand, one of the two fee currencies
         address creatorFeeRecipient;
-        uint16 creatorShareBps; // of LP fees only; the yield share is read live from the factory
+        uint16 creatorShareBps; // of the position's LP fees; there is no yield leg to split
         bool exists;
     }
     /// onlyGraduation. The NFT must already be staked in `distributor` with this locker as
@@ -158,16 +159,14 @@ interface ILaunchLocker {
     function recordPosition(address token, LockedPosition calldata position) external;
     /// onlyGraduation. Pulls `amount` of `token` from msg.sender and holds it forever.
     function lockTokenSupply(address token, uint256 amount) external;
-    /// Permissionless. Collects the position's LP fees and its float-yield rewards and splits
-    /// each three ways, on two separate creator rates: LP fees by the position's snapshotted
-    /// `creatorShareBps`, float yield by the factory's live `graduatedCreatorYieldShareBps`.
-    /// Both legs give the LP fund the factory's live `graduatedLpFundShareBps`, taken out of
-    /// the protocol's remainder rather than the creator's share, and the protocol keeps what
-    /// is left. Every leg credits LaunchFeeEscrow.
-    /// `unitOut` is both unit legs added together; `yieldOut` is the yield leg alone.
-    function collect(address token)
-        external
-        returns (uint256 unitOut, uint256 tokenOut, uint256 yieldOut);
+    /// Permissionless. Collects the position's LP fees — in the quote brand and in the launch
+    /// token — and splits each three ways: the position's snapshotted `creatorShareBps` to the
+    /// creator, the factory's live `graduatedLpFundShareBps` to the LP fund, and the remainder
+    /// to the protocol. Every leg credits LaunchFeeEscrow.
+    ///
+    /// Float yield is deliberately absent. The position renounced its reward stream when it
+    /// was recorded, so the whole stream stays with the market's other liquidity providers.
+    function collect(address token) external returns (uint256 unitOut, uint256 tokenOut);
     function lockedPosition(address token) external view returns (LockedPosition memory);
     function lockedSupply(address token) external view returns (uint256);
 }

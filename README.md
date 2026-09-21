@@ -29,6 +29,18 @@ swap's unspecified leg, as a hook return delta.** It is therefore already inside
 subtract the fee yourself. Measured wei-exact against an unmodified `V4Quoter` on all six live
 pools; see [`docs/0x/SETTLER_COMPATIBILITY.md`](docs/0x/SETTLER_COMPATIBILITY.md) section 6.
 
+**Updated 2026-09-21: keeper-set LP fees.** Markets created from now on may carry Uniswap's
+dynamic-fee flag (`PoolKey.fee = 0x800000`). For those, the LP fee is the stored `slot0.lpFee`,
+seeded at 0.50% by registration and moved by `ProtocolFeeHook.setPoolLpFee` — the owner or
+one authorised keeper — within 0.01–5%, the same in both directions, with no expiry and
+nothing computed per swap. The skim above is unchanged. Read it off `getSlot0`; `beforeSwap`
+still returns no override. The six live pools are static and stay static. Design and limits:
+[`docs/FABLES_DYNAMIC_FEES.md`](docs/FABLES_DYNAMIC_FEES.md); the keeper:
+[`docs/FABLES_KEEPER.md`](docs/FABLES_KEEPER.md) and `script/dynamic-fee-keeper.mjs`; what was
+verified: [`docs/FABLES_VERIFICATION.md`](docs/FABLES_VERIFICATION.md). Hook implementation
+`0xfe4014D1ee20cC77349fAd24C1e9CeA69b03db03`, `exact_match` on Sourcify; the release runbook
+is [`docs/GRADUATE_INTO_LAUNCH_DOLLAR_RUNBOOK.md`](docs/GRADUATE_INTO_LAUNCH_DOLLAR_RUNBOOK.md) §11.
+
 ## Layout
 
 | Path | What is in it |

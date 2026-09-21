@@ -15,6 +15,7 @@ import {PoolSwapTest} from "v4-core/test/PoolSwapTest.sol";
 
 import {IPermit2, IPositionManagerV4} from "../../src/interfaces/IPositionManagerV4.sol";
 import {SharedReservePool} from "../../src/pool/SharedReservePool.sol";
+import {PoolBrandTreasury} from "../../src/pool/PoolBrandTreasury.sol";
 import {AssetMarketFactory} from "../../src/markets/AssetMarketFactory.sol";
 import {MarketRouter} from "../../src/markets/MarketRouter.sol";
 import {ProtocolFeeHook} from "../../src/markets/ProtocolFeeHook.sol";
@@ -186,13 +187,20 @@ abstract contract LaunchpadFixture is StackFixture {
         _setLaunchpad(marketFactory, address(graduation));
 
         // The quote brand: a plain representation brand on the default reserve, registered
-        // the way any community would register theirs.
-        (quoteBrand,) = marketFactory.registerBrand("Launch Dollar", "launchUSD");
+        // the way any community would register theirs. Registering through the factory makes
+        // this contract the treasury's admin, so it is also the party that opts the brand
+        // into sharing its float yield. Both still matter: economics are keyed by reserve
+        // now, but every launch re-checks the registration and the float-share opt-in for the
+        // brand it is quoted in, so a brand missing either is refused at launch time.
+        address quoteTreasury;
+        (quoteBrand, quoteTreasury) = marketFactory.registerBrand("Launch Dollar", "launchUSD");
+        PoolBrandTreasury(quoteTreasury).setFactory(address(marketFactory));
+        // One call for the reserve, not one per brand: every brand of this reserve launches on
+        // these terms, including ones issued after this line.
         vm.prank(owner);
-        launchFactory.setPairTokenEconomics(
-            quoteBrand,
-            LaunchFactory.PairTokenEconomics({
-                reserve: address(reserve),
+        launchFactory.setReserveEconomics(
+            address(reserve),
+            LaunchFactory.ReserveEconomics({
                 phantomQuote: PHANTOM_QUOTE,
                 graduationThreshold: GRADUATION_THRESHOLD,
                 launchFee: LAUNCH_FEE,

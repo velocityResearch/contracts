@@ -12,6 +12,8 @@ import {Hooks} from "v4-core/libraries/Hooks.sol";
 
 import {IPositionManagerV4} from "../../src/interfaces/IPositionManagerV4.sol";
 import {SharedReservePool} from "../../src/pool/SharedReservePool.sol";
+import {PoolBrandTreasury} from "../../src/pool/PoolBrandTreasury.sol";
+import {PooledBrandToken} from "../../src/pool/PooledBrandToken.sol";
 import {AssetMarketFactory} from "../../src/markets/AssetMarketFactory.sol";
 import {ProtocolFeeHook} from "../../src/markets/ProtocolFeeHook.sol";
 import {LaunchFactory} from "../../src/launchpad/LaunchFactory.sol";
@@ -147,8 +149,29 @@ contract LaunchFactoryTest is StackFixture {
             owner
         );
 
-        (brand,) = reserve.registerBrand("Brand Dollar", "bUSD", address(this));
-        (otherBrand,) = otherReserve.registerBrand("Other Dollar", "oUSD", address(this));
+        // Both brands go through the MARKET factory, not straight onto the reserve: that is
+        // what gives them a `reserveOfBrand`, which a launch now insists on at launch time
+        // because graduation opens the market quoted in the brand itself. Registering leaves
+        // this contract as each treasury's admin, so it is also what opts them into sharing
+        // their float yield — the other thing a launch now insists on.
+        //
+        // `otherReserve` is approved only long enough to register a brand in it, because the
+        // rejection tests below need it unapproved again.
+        address brandTreasury;
+        address otherBrandTreasury;
+        (brand, brandTreasury) = marketFactory.registerBrand("Brand Dollar", "bUSD");
+        vm.prank(owner);
+        marketFactory.setApprovedReservePool(address(otherReserve), true);
+        (otherBrand, otherBrandTreasury) = marketFactory.registerBrand(
+            "Other Dollar",
+            "oUSD",
+            PooledBrandToken.Metadata({description: "", logo: "", socials: ""}),
+            address(otherReserve)
+        );
+        vm.prank(owner);
+        marketFactory.setApprovedReservePool(address(otherReserve), false);
+        PoolBrandTreasury(brandTreasury).setFactory(address(marketFactory));
+        PoolBrandTreasury(otherBrandTreasury).setFactory(address(marketFactory));
 
         escrow = new LaunchFeeEscrow();
         factory = LaunchFactory(
@@ -178,7 +201,7 @@ contract LaunchFactoryTest is StackFixture {
         factory.setLaunchForwarder(router);
         factory.setLaunchEnabled(true);
         configId = factory.addLaunchConfig(_config());
-        factory.setPairTokenEconomics(brand, _economics(address(reserve), 6, true));
+        factory.setReserveEconomics(address(reserve), _economics(6, true));
         vm.stopPrank();
 
         _fund(creator, 100_000e6);
@@ -194,13 +217,12 @@ contract LaunchFactoryTest is StackFixture {
         });
     }
 
-    function _economics(address reserve_, uint8 decimals, bool approved)
+    function _economics(uint8 decimals, bool approved)
         internal
         pure
-        returns (LaunchFactory.PairTokenEconomics memory)
+        returns (LaunchFactory.ReserveEconomics memory)
     {
-        return LaunchFactory.PairTokenEconomics({
-            reserve: reserve_,
+        return LaunchFactory.ReserveEconomics({
             phantomQuote: PHANTOM,
             graduationThreshold: THRESHOLD,
             launchFee: LAUNCH_FEE,
@@ -345,54 +367,142 @@ contract LaunchFactoryTest is StackFixture {
         vm.stopPrank();
     }
 
-    function test_pairTokenEconomicsRejectsDecimalsUnregisteredBrandsAndUnapprovedReserves()
-        public
-    {
+    /// @notice What the owner may write against a reserve. Nothing here names a brand: the
+    ///         unit of approval is the reserve, so the only questions are whether the figures
+    ///         make a quotable curve and whether the market factory actually opens markets in
+    ///         that reserve at the scale claimed.
+    function test_setReserveEconomicsRejectsBadTermsAndReservesTheFactoryDoesNotServe() public {
         vm.startPrank(owner);
 
-        // Wrong scale for a 6-decimal brand.
-        vm.expectRevert(
-            abi.encodeWithSelector(LaunchFactory.PairTokenDecimalsMismatch.selector, 18, 6)
-        );
-        factory.setPairTokenEconomics(brand, _economics(address(reserve), 18, true));
+        vm.expectRevert(LaunchFactory.ZeroAddress.selector);
+        factory.setReserveEconomics(address(0), _economics(6, true));
 
-        // Below the floor, regardless of what the token says.
-        vm.expectRevert(LaunchFactory.PairTokenEconomicsInvalid.selector);
-        factory.setPairTokenEconomics(brand, _economics(address(reserve), 5, true));
+        LaunchFactory.ReserveEconomics memory e = _economics(6, true);
+        e.phantomQuote = 0;
+        vm.expectRevert(LaunchFactory.ReserveEconomicsInvalid.selector);
+        factory.setReserveEconomics(address(reserve), e);
 
-        // USDG is the reserve's asset, not one of its brands.
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                LaunchFactory.PairTokenNotRegistered.selector, address(usdg), address(reserve)
-            )
-        );
-        factory.setPairTokenEconomics(address(usdg), _economics(address(reserve), 6, true));
+        e = _economics(6, true);
+        e.graduationThreshold = 0;
+        vm.expectRevert(LaunchFactory.ReserveEconomicsInvalid.selector);
+        factory.setReserveEconomics(address(reserve), e);
 
-        // A brand of a reserve the market factory does not serve.
+        // Below the decimal floor, where integer curve fees round to zero on real trades.
+        vm.expectRevert(LaunchFactory.ReserveEconomicsInvalid.selector);
+        factory.setReserveEconomics(address(reserve), _economics(5, true));
+
+        // Above the floor but not the scale this reserve actually mints its brands at.
+        vm.expectRevert(LaunchFactory.ReserveEconomicsInvalid.selector);
+        factory.setReserveEconomics(address(reserve), _economics(18, true));
+
+        // A reserve the market factory does not open markets in. Graduation would have
+        // nowhere to put the raise.
         vm.expectRevert(
             abi.encodeWithSelector(LaunchFactory.ReserveNotApproved.selector, address(otherReserve))
         );
-        factory.setPairTokenEconomics(otherBrand, _economics(address(otherReserve), 6, true));
+        factory.setReserveEconomics(address(otherReserve), _economics(6, true));
 
-        // A brand claimed against the wrong reserve.
+        // Opening a reserve is not a way to skip writing its figures.
+        vm.expectRevert(LaunchFactory.ReserveEconomicsInvalid.selector);
+        factory.setReserveApproved(address(otherReserve), true);
+
+        // Once the market factory serves the reserve, its figures are welcome.
+        marketFactory.setApprovedReservePool(address(otherReserve), true);
+        factory.setReserveEconomics(address(otherReserve), _economics(6, true));
+        (uint256 phantom, uint256 threshold,, uint8 decimals, bool approved) =
+            factory.reserveEconomics(address(otherReserve));
+        assertEq(phantom, PHANTOM, "phantom quote written");
+        assertEq(threshold, THRESHOLD, "graduation threshold written");
+        assertEq(decimals, 6, "scale pinned to the reserve's asset");
+        assertTrue(approved, "and the reserve is open");
+        vm.stopPrank();
+    }
+
+    /// @notice The per-brand conditions, which are no longer the owner's to satisfy in
+    ///         advance: they are read live off the market factory and the brand's treasury
+    ///         every time a launch is quoted in that brand.
+    function test_launchEconomicsRefusesBrandsThatCouldNeverLaunch() public {
+        // USDG is the reserve's asset, not one of its brands, so there is no reserve to
+        // resolve at all.
         vm.expectRevert(
             abi.encodeWithSelector(
-                LaunchFactory.PairTokenNotRegistered.selector, otherBrand, address(reserve)
+                LaunchFactory.PairTokenNotRegistered.selector, address(usdg), address(0)
             )
         );
-        factory.setPairTokenEconomics(otherBrand, _economics(address(reserve), 6, true));
+        factory.launchEconomics(address(usdg));
 
-        // Once the market factory approves the reserve, its brands are welcome.
+        // A brand whose issuer has not agreed to share the float yield of the markets it
+        // quotes. A graduate seeds its whole raise in this dollar and would earn nothing.
+        (address closedBrand,) = marketFactory.registerBrand("Closed Dollar", "cUSD");
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                LaunchFactory.PairTokenFloatShareUnavailable.selector, closedBrand
+            )
+        );
+        factory.launchEconomics(closedBrand);
+
+        // A brand of a reserve the market factory serves but whose figures were never
+        // written: readable, and refused the moment it is launched in.
+        vm.startPrank(owner);
         marketFactory.setApprovedReservePool(address(otherReserve), true);
-        factory.setPairTokenEconomics(otherBrand, _economics(address(otherReserve), 6, true));
-        (address r,,,,, bool approved) = factory.pairTokenEconomics(otherBrand);
-        assertEq(r, address(otherReserve));
-        assertTrue(approved);
-
-        // Approval needs economics to exist.
-        vm.expectRevert(LaunchFactory.PairTokenEconomicsInvalid.selector);
-        factory.setPairTokenApproved(address(usdg), true);
         vm.stopPrank();
+        (address resolved, LaunchFactory.ReserveEconomics memory blank) =
+            factory.launchEconomics(otherBrand);
+        assertEq(resolved, address(otherReserve), "the reserve still resolves");
+        assertFalse(blank.approved, "but it is closed to launches");
+        vm.prank(creator);
+        vm.expectRevert(
+            abi.encodeWithSelector(LaunchFactory.ReserveClosed.selector, address(otherReserve))
+        );
+        factory.launchToken(_params("s1"), configId, otherBrand, new address[](0));
+
+        // A reserve with figures the owner has since closed refuses the same way.
+        vm.prank(owner);
+        factory.setReserveApproved(address(reserve), false);
+        vm.prank(creator);
+        vm.expectRevert(
+            abi.encodeWithSelector(LaunchFactory.ReserveClosed.selector, address(reserve))
+        );
+        factory.launchToken(_params("s2"), configId, brand, new address[](0));
+
+        // And a brand of a reserve the market factory has since retired: the figures are
+        // still written, but the reserve no longer resolves.
+        vm.prank(owner);
+        marketFactory.setApprovedReservePool(address(otherReserve), false);
+        vm.expectRevert(
+            abi.encodeWithSelector(LaunchFactory.ReserveNotApproved.selector, address(otherReserve))
+        );
+        factory.launchEconomics(otherBrand);
+    }
+
+    /// @notice The point of keying economics by reserve. A dollar issued long after the owner
+    ///         opened its reserve is launchable on the spot, with no owner transaction in
+    ///         between — under per-brand approval this launch was impossible.
+    function test_aBrandIssuedAfterItsReserveWasOpenedLaunchesWithNoOwnerCall() public {
+        // Everything the owner will ever do for this reserve has already happened in setUp.
+        (address lateBrand, address lateTreasury) =
+            marketFactory.registerBrand("Late Dollar", "lateUSD");
+        PoolBrandTreasury(lateTreasury).setFactory(address(marketFactory));
+
+        (address resolved, LaunchFactory.ReserveEconomics memory economics) =
+            factory.launchEconomics(lateBrand);
+        assertEq(resolved, address(reserve), "the new brand inherits its reserve's terms");
+        assertTrue(economics.approved, "which are already open");
+
+        usdg.mint(creator, 100_000e6);
+        vm.startPrank(creator);
+        usdg.approve(address(reserve), 100_000e6);
+        reserve.mint(lateBrand, 100_000e6, creator);
+        IERC20(lateBrand).approve(address(factory), type(uint256).max);
+        (address token,) =
+            factory.launchToken(_params("late"), configId, lateBrand, new address[](0));
+        vm.stopPrank();
+
+        ILaunchFactory.LaunchedToken memory record = factory.getLaunchedToken(token);
+        assertEq(record.pairToken, lateBrand, "quoted in the brand that did not exist yet");
+        assertEq(record.reserve, address(reserve), "against the reserve the owner opened");
+        assertEq(record.graduationThreshold, THRESHOLD, "on that reserve's terms");
+        assertEq(IERC20(lateBrand).balanceOf(feeRecipient), LAUNCH_FEE, "and paid its fee");
     }
 
     function test_ownerSettersEnforceTheirCaps() public {
@@ -403,8 +513,6 @@ contract LaunchFactoryTest is StackFixture {
         factory.setMaxCreatorTaxBps(1_001);
         vm.expectRevert(LaunchFactory.InvalidBasisPoints.selector);
         factory.setGraduatedCreatorShareBps(10_001);
-        vm.expectRevert(LaunchFactory.InvalidBasisPoints.selector);
-        factory.setGraduatedCreatorYieldShareBps(10_001);
         vm.expectRevert(LaunchFactory.InvalidBasisPoints.selector);
         factory.setLpFundShareBps(5_001);
         vm.expectRevert(LaunchFactory.InvalidBasisPoints.selector);
@@ -470,17 +578,15 @@ contract LaunchFactoryTest is StackFixture {
         vm.stopPrank();
     }
 
-    /// @notice The post-graduation fund share is bounded against BOTH creator rates, because
-    ///         it is subtracted alongside whichever of them applies to the leg being split.
-    function test_theGraduatedFundShareIsBoundedAgainstBothCreatorRates() public {
+    /// @notice The post-graduation fund share is bounded against the creator's fee share,
+    ///         because the two are subtracted from the same leg.
+    function test_theGraduatedFundShareIsBoundedAgainstTheCreatorRate() public {
         vm.startPrank(owner);
         factory.setLpFundRecipient(address(0x11FD));
         factory.setGraduatedLpFundShareBps(5_000);
 
         vm.expectRevert(LaunchFactory.InvalidBasisPoints.selector);
         factory.setGraduatedCreatorShareBps(5_001);
-        vm.expectRevert(LaunchFactory.InvalidBasisPoints.selector);
-        factory.setGraduatedCreatorYieldShareBps(5_001);
 
         // And in the other direction. The fund has to come down before the creator can go up,
         // which is the same invariant seen from the other side.
@@ -567,10 +673,10 @@ contract LaunchFactoryTest is StackFixture {
     }
 
     function test_zeroLaunchFeePullsNothing() public {
-        LaunchFactory.PairTokenEconomics memory e = _economics(address(reserve), 6, true);
+        LaunchFactory.ReserveEconomics memory e = _economics(6, true);
         e.launchFee = 0;
         vm.prank(owner);
-        factory.setPairTokenEconomics(brand, e);
+        factory.setReserveEconomics(address(reserve), e);
         vm.prank(creator);
         IERC20(brand).approve(address(factory), 0);
         _launch(creator, "s1");
@@ -601,19 +707,6 @@ contract LaunchFactoryTest is StackFixture {
         assertEq(factory.launchCount(), 2);
     }
 
-    /// @notice The yield share is deliberately absent from the digest. It is read live at
-    ///         collect time rather than frozen into the launch, so there is nothing for a
-    ///         creator to pin and nothing an owner can reprice between a quote and a launch.
-    function test_economicsDigestExcludesTheLiveYieldShare() public {
-        bytes32 quoted = factory.previewLaunchEconomics(configId, brand);
-
-        vm.prank(owner);
-        factory.setGraduatedCreatorYieldShareBps(5_000);
-
-        assertEq(factory.graduatedCreatorYieldShareBps(), 5_000, "the knob moved");
-        assertEq(factory.previewLaunchEconomics(configId, brand), quoted, "and the digest did not");
-    }
-
     /// @dev Every term in the digest's preimage, moved one at a time. The rule the digest
     ///      encodes is that anything the owner can change which is then frozen into the launch
     ///      must be pinnable, because the creator cannot react to it once the curve is live —
@@ -639,17 +732,17 @@ contract LaunchFactoryTest is StackFixture {
         factory.setSnipeTax(5_000, 30);
         last = _assertDigestMoved(last, "snipe tax window");
 
-        LaunchFactory.PairTokenEconomics memory e = _economics(address(reserve), 6, true);
+        LaunchFactory.ReserveEconomics memory e = _economics(6, true);
         e.launchFee = 2e6;
-        factory.setPairTokenEconomics(brand, e);
+        factory.setReserveEconomics(address(reserve), e);
         last = _assertDigestMoved(last, "launch fee");
 
         e.phantomQuote = PHANTOM + 1e6;
-        factory.setPairTokenEconomics(brand, e);
+        factory.setReserveEconomics(address(reserve), e);
         last = _assertDigestMoved(last, "phantom quote");
 
         e.graduationThreshold = THRESHOLD + 1e6;
-        factory.setPairTokenEconomics(brand, e);
+        factory.setReserveEconomics(address(reserve), e);
         last = _assertDigestMoved(last, "graduation threshold");
 
         LaunchFactory.LaunchConfig memory c = _config();
@@ -666,11 +759,11 @@ contract LaunchFactoryTest is StackFixture {
         last = _assertDigestMoved(last, "supply");
 
         // The reserve, last. A brand belongs to exactly one reserve, so this leg is two
-        // brands whose economics are identical in every other field: if the digest covers
-        // the reserve the two differ, and if it does not they collide.
+        // brands on different reserves carrying identical figures: if the digest covers the
+        // reserve the two differ, and if it does not they collide.
         marketFactory.setApprovedReservePool(address(otherReserve), true);
-        factory.setPairTokenEconomics(brand, _economics(address(reserve), 6, true));
-        factory.setPairTokenEconomics(otherBrand, _economics(address(otherReserve), 6, true));
+        factory.setReserveEconomics(address(reserve), _economics(6, true));
+        factory.setReserveEconomics(address(otherReserve), _economics(6, true));
         assertTrue(
             factory.previewLaunchEconomics(configId, otherBrand)
                 != factory.previewLaunchEconomics(configId, brand),
@@ -715,7 +808,9 @@ contract LaunchFactoryTest is StackFixture {
         vm.expectRevert(LaunchFactory.InvalidLaunchConfigId.selector);
         factory.launchToken(p, 9, brand, new address[](0));
 
-        vm.expectRevert(LaunchFactory.PairTokenNotApproved.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(LaunchFactory.ReserveNotApproved.selector, address(otherReserve))
+        );
         factory.launchToken(p, configId, otherBrand, new address[](0));
 
         p.creatorTaxBps = 1_001;
@@ -943,8 +1038,6 @@ contract LaunchFactoryTest is StackFixture {
         assertEq(s.quoteAmount, swept.sweptQuote);
         assertEq(s.tokenAmount, swept.sweptTokens);
         assertEq(s.phantomQuote, PHANTOM);
-        assertEq(s.unitName, "LNCH Market Dollar");
-        assertEq(s.unitSymbol, "LNCH.d");
         assertEq(graduation.quoteReceived(), swept.sweptQuote, "funds arrive before the call");
         assertEq(graduation.tokensReceived(), swept.sweptTokens);
         assertEq(IERC20(brand).balanceOf(address(factory)), 0, "nothing stays behind");
@@ -1103,17 +1196,18 @@ contract LaunchFactoryTest is StackFixture {
 
     // ─── Terms that cannot graduate are refused at launch ────────────────
 
-    /// @dev A brand's reserve is checked when its economics are written, but the owner may
-    ///      retire a reserve afterwards and nothing in the launchpad notices. Such a launch
-    ///      trades and sweeps normally, then fails `_resolveReserve` on every `graduateToMarket`
-    ///      forever — its traders' money reachable only by the owner's rescue. Refuse it while
-    ///      the only thing at stake is the creator's unspent fee.
+    /// @dev A launch resolves its brand's reserve and refuses one the market factory no longer
+    ///      serves, because the owner may retire a reserve at any time and nothing in the
+    ///      launchpad notices. Such a launch trades and sweeps normally, then fails
+    ///      `_resolveReserve` on every `graduateToMarket` forever — its traders' money
+    ///      reachable only by the owner's rescue. Refuse it while the only thing at stake is
+    ///      the creator's unspent fee.
     function test_launchIsRefusedOnceItsBrandsReserveIsRetired() public {
-        // A brand on a second reserve the market factory accepts, with economics written
-        // while that acceptance holds — the state `setPairTokenEconomics` validates.
+        // A brand on a second reserve the market factory accepts, with the reserve's figures
+        // written while that acceptance holds.
         vm.startPrank(owner);
         marketFactory.setApprovedReservePool(address(otherReserve), true);
-        factory.setPairTokenEconomics(otherBrand, _economics(address(otherReserve), 6, true));
+        factory.setReserveEconomics(address(otherReserve), _economics(6, true));
         vm.stopPrank();
 
         usdg.mint(creator, 10e6);

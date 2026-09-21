@@ -17,19 +17,25 @@ import {
 import {IPermit2, IPositionManagerV4} from "../src/interfaces/IPositionManagerV4.sol";
 
 /// @notice Split a graduated launch's income into two rates: the pool's own LP fees, which
-///         become entirely the creator's, and the float yield, which stays the protocol's
-///         under a knob that can be moved later.
+///         become entirely the creator's, and the float yield, which stays the protocol's.
 ///
-/// @dev    **Four steps, and the last two are why this is a script rather than two `cast`
+/// @dev    **The float-yield rate this upgrade introduced is retired.** A locked position now
+///         renounces its reward stream the moment it is recorded, so a graduated launch has no
+///         yield leg for anyone to take a share of, and the rate was deleted from
+///         `LaunchFactory` rather than set to zero — a rate nobody reads is a rate that gets
+///         switched back on by accident. Its storage slot survives, unreadable, only to keep
+///         the packing below it still. The step that wrote it is gone from this script; the
+///         rest of the sequence is kept as the record of what was actually sent.
+///
+///         **Four steps, and the last two are why this is a script rather than two `cast`
 ///         calls.** The knob lives on an upgradeable proxy and is read by a contract that is
 ///         not upgradeable, so the state change and the code change cannot be made in the same
 ///         place:
 ///
-///         1. Upgrade the `LaunchFactory` proxy. `graduatedCreatorYieldShareBps` is a new
-///            `uint16` packed into the slot `graduatedCreatorShareBps` and `launchEnabled`
-///            already share, so nothing below it moves and the upgrade carries no initializer
-///            call — `upgradeToAndCall` is given empty calldata deliberately, and the new
-///            variable reads its shipped default of zero from storage that was never written.
+///         1. Upgrade the `LaunchFactory` proxy. The rate this added was a new `uint16` packed
+///            into the slot `graduatedCreatorShareBps` and `launchEnabled` already share, so
+///            nothing below it moved and the upgrade carried no initializer call —
+///            `upgradeToAndCall` is given empty calldata deliberately.
 ///         2. `setGraduatedCreatorShareBps(10_000)`. The live proxy's storage still holds the
 ///            7_000 the old implementation's `initialize` wrote; a fresh deployment would ship
 ///            10_000, an upgraded one has to be told. **This moves future launches only** — the
@@ -61,10 +67,6 @@ contract UpgradeLaunchpadFeeSplitMainnet is Script {
 
     /// @notice The creator's share of a graduated position's LP fees, after this runs.
     uint16 constant CREATOR_FEE_SHARE_BPS = 10_000;
-    /// @notice The creator's share of its float yield. Zero: the yield is what the reserve's
-    ///         collateral earns, not what the launch earns. Read live, so it is the one figure
-    ///         here that can be moved again later without stranding a launch.
-    uint16 constant CREATOR_YIELD_SHARE_BPS = 0;
 
     /// @dev Everything read off the live proxies before the upgrade, so the post-checks compare
     ///      against what was actually there rather than against a constant in this file.
@@ -105,9 +107,8 @@ contract UpgradeLaunchpadFeeSplitMainnet is Script {
         LaunchFactory freshImplementation = new LaunchFactory();
         factory.upgradeToAndCall(address(freshImplementation), "");
 
-        // 2. The rates. `initialize` already ran on this proxy, so both are owner calls.
+        // 2. The rate. `initialize` already ran on this proxy, so this is an owner call.
         factory.setGraduatedCreatorShareBps(CREATOR_FEE_SHARE_BPS);
-        factory.setGraduatedCreatorYieldShareBps(CREATOR_YIELD_SHARE_BPS);
 
         // 3. The locker that can tell the two legs apart, and the graduation module that holds
         //    it. `setGraduation` on the locker is one-shot and has to be the signer's call:
@@ -193,10 +194,6 @@ contract UpgradeLaunchpadFeeSplitMainnet is Script {
         require(
             factory.graduatedCreatorShareBps() == CREATOR_FEE_SHARE_BPS, "fee share not applied"
         );
-        require(
-            factory.graduatedCreatorYieldShareBps() == CREATOR_YIELD_SHARE_BPS,
-            "yield share not applied"
-        );
 
         require(address(factory.graduation()) == address(graduation), "factory not repointed");
         require(marketFactory.launchpad() == address(graduation), "market factory not repointed");
@@ -214,7 +211,6 @@ contract UpgradeLaunchpadFeeSplitMainnet is Script {
         console.log("  implementation before:", was.implementation);
         console.log("  implementation after: ", implementation);
         console.log("  creator share of LP fees (bps):", CREATOR_FEE_SHARE_BPS);
-        console.log("  creator share of float yield (bps):", CREATOR_YIELD_SHARE_BPS);
         console.log("LaunchLocker before:   ", was.locker);
         console.log("LaunchLocker after:    ", locker);
         console.log("LaunchGraduation before:", was.graduation);

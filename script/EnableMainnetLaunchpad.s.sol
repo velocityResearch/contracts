@@ -7,12 +7,12 @@ import {SharedReservePool} from "../src/pool/SharedReservePool.sol";
 
 /// @notice Open the gen-6 launchpad for public launches.
 ///
-/// The launchpad is deployed, wired and `launchEnabled`, but no quote brand carries economics, so
-/// every launch reverts. `setPairTokenApproved` also reverts `PairTokenEconomicsInvalid` unless
-/// economics are set first, so the order below is forced rather than stylistic.
+/// The launchpad is deployed, wired and `launchEnabled`, but the reserve carries no economics, so
+/// every launch reverts. Economics are keyed by reserve: one `setReserveEconomics` opens it and
+/// every brand registered on it -- now or later -- becomes quotable with no further owner action.
 ///
-/// The quote brand must be a brand registered on the reserve, not the reserve asset itself:
-/// launches quote in a pooled brand, and the reserve mints it 1:1 on the way through.
+/// A launch still quotes in a brand registered on the reserve, not in the reserve asset itself:
+/// the reserve mints the brand 1:1 on the way through.
 ///
 /// Read the state first, from anywhere, with no key:
 ///   forge script script/EnableMainnetLaunchpad.s.sol:EnableMainnetLaunchpad --sig 'status()' --rpc-url robinhood
@@ -51,25 +51,22 @@ contract EnableMainnetLaunchpad is Script {
             console.log("QUOTE_BRAND unset; pass it to inspect a brand's economics.");
             return;
         }
-        (
-            address reserve,
-            uint256 phantomQuote,
-            uint256 graduationThreshold,
-            uint256 launchFee,
-            uint8 decimals,
-            bool approved
-        ) = LAUNCH_FACTORY.pairTokenEconomics(quote);
+        // `launchEconomics` resolves the brand's reserve and reverts if the brand is not
+        // registered, its reserve is not one the market factory serves, or its treasury has
+        // not opted into sharing float -- the three per-brand conditions a launch needs.
+        (address reserve, LaunchFactory.ReserveEconomics memory e) =
+            LAUNCH_FACTORY.launchEconomics(quote);
         console.log("quote brand         ", quote);
         console.log("  reserve           ", reserve);
-        console.log("  phantomQuote      ", phantomQuote);
-        console.log("  graduationThreshold", graduationThreshold);
-        console.log("  launchFee         ", launchFee);
-        console.log("  decimals          ", decimals);
-        console.log("  approved          ", approved);
+        console.log("  phantomQuote      ", e.phantomQuote);
+        console.log("  graduationThreshold", e.graduationThreshold);
+        console.log("  launchFee         ", e.launchFee);
+        console.log("  decimals          ", e.decimals);
+        console.log("  approved          ", e.approved);
         console.log(
-            approved && phantomQuote != 0
+            e.approved && e.phantomQuote != 0
                 ? "LAUNCHPAD OPEN: this brand can be quoted against."
-                : "LAUNCHPAD CLOSED: no approved quote brand, every launch reverts."
+                : "LAUNCHPAD CLOSED: this brand's reserve is closed, every launch reverts."
         );
     }
 
@@ -85,28 +82,30 @@ contract EnableMainnetLaunchpad is Script {
         console.log("quote brand registered", token);
     }
 
-    /// Owner only. Sets economics then approval, in that order.
+    /// Owner only. Opens the reserve in one call, then confirms against QUOTE_BRAND.
     function enable() external {
         address quote = vm.envAddress("QUOTE_BRAND");
         require(quote != address(0), "QUOTE_BRAND required");
         require(RESERVE.isRegistered(quote), "QUOTE_BRAND is not a registered brand");
         vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
-        LAUNCH_FACTORY.setPairTokenEconomics(
-            quote,
-            LaunchFactory.PairTokenEconomics({
-                reserve: address(RESERVE),
+        LAUNCH_FACTORY.setReserveEconomics(
+            address(RESERVE),
+            LaunchFactory.ReserveEconomics({
                 phantomQuote: PHANTOM_QUOTE,
                 graduationThreshold: GRADUATION_THRESHOLD,
                 launchFee: LAUNCH_FEE,
                 decimals: QUOTE_DECIMALS,
-                approved: false
+                approved: true
             })
         );
-        LAUNCH_FACTORY.setPairTokenApproved(quote, true);
         if (!LAUNCH_FACTORY.launchEnabled()) LAUNCH_FACTORY.setLaunchEnabled(true);
         vm.stopBroadcast();
-        (,,,,, bool approved) = LAUNCH_FACTORY.pairTokenEconomics(quote);
-        require(approved, "approval did not take");
+        // Read back through the brand rather than the reserve: this also proves the per-brand
+        // conditions `launchEconomics` enforces are satisfied for QUOTE_BRAND itself.
+        (address reserve, LaunchFactory.ReserveEconomics memory e) =
+            LAUNCH_FACTORY.launchEconomics(quote);
+        require(reserve == address(RESERVE), "QUOTE_BRAND belongs to another reserve");
+        require(e.approved, "approval did not take");
         console.log("launchpad open for", quote);
     }
 }

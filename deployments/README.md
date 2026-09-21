@@ -7,26 +7,26 @@ graduated token.
 
 ## Generated: never hand-edit
 
-`mainnet-state.json` is the only generated file here. Every value in it is an `eth_call` or an
-`eth_getStorageAt` result read from chain 4663, and it carries `generatedAt`, `blockNumber` and
-`generatedBy` at the top so a stale copy is self-evident: compare `blockNumber` against the
-chain and the file either is or is not current. The snapshot in this repository was taken at
-block 68196940 on 2026-09-20.
+| File | Written by |
+| --- | --- |
+| `mainnet-state.json` | `script/sync-mainnet-state.mjs` |
 
-**The generator itself is not in this repository.** `script/sync-mainnet-state.mjs` was a Node
-script that imported from the web application, so it did not survive the extraction of this
-contracts-only tree, and the `generatedBy` / `regenerateWith` strings inside the JSON still
-name it. Treat the file as a frozen, dated snapshot rather than something you can refresh
-here. Nothing in `src/`, `test/` or `script/` reads it; it exists so a reviewer can see what
-the chain said without an RPC endpoint.
-
-To check a value rather than trust the snapshot, read it off the chain directly — every field
-in it is one `cast call` away, and `script/VerifyAssetMarketsMainnet.s.sol` re-derives the
-important ones in a single read-only run:
+Regenerate it with one command, from the repository root:
 
 ```
-SHARED_RESERVE_POOL=0x… ASSET_MARKET_FACTORY=0x… MARKET_ROUTER=0x… forge script script/VerifyAssetMarketsMainnet.s.sol --rpc-url robinhood
+node script/sync-mainnet-state.mjs
 ```
+
+That is the whole interface. The script is read-only: every call is an `eth_call` or an
+`eth_getStorageAt`, there is no signer, and no private key is read, so an auditor holding
+nothing but the RPC URL can reproduce the file. It refuses to run against any chain other than
+4663. Optional environment: `ROBINHOOD_RPC_URL` to point at a different endpoint, `OUT` to
+write elsewhere, `DRY_RUN=true` to print to stdout and write nothing.
+
+`mainnet-state.json` carries `generatedAt`, `blockNumber` and `generatedBy` at the top so a
+stale copy is self-evident: compare `blockNumber` against the chain and the file either is or
+is not current. There is no merge story for hand edits, and none is wanted. If a value in it
+looks wrong, re-run the script; if it still looks wrong, the chain disagrees with you.
 
 Raw integer fields carry a `Raw` suffix and are decimal strings in base units. The suffix-free
 sibling is the same number scaled by the token's decimals and exists only so a human can read a
@@ -38,10 +38,8 @@ mean opposite things.
 
 Everything else, one file per deployment generation. Their job is to record addresses, the
 decisions behind them, and the open items that follow. They do not record counts, balances, fee
-rates, caps, owners, pending nominations, proxy implementations or per-pool fees. Those all
-moved into `mainnet-state.json`, and the corresponding keys were deleted rather than updated.
-
-**Mainnet, chain 4663:**
+rates, caps, owners, pending nominations, proxy implementations or per-pool fees. Those all moved
+into `mainnet-state.json`, and the corresponding keys were deleted rather than updated.
 
 - `asset-markets-mainnet-v6.json` is the live generation. Start here.
 - `asset-markets-mainnet-v5.json`, `asset-markets-mainnet-v4.json`, `asset-markets-mainnet.json`
@@ -49,32 +47,21 @@ moved into `mainnet-state.json`, and the corresponding keys were deleted rather 
   what exists, not of what is in use, and they are deliberately not deleted. Gen-4 is the only
   abandoned generation that ever held value; its live residual is under the `gen4` key of
   `mainnet-state.json`, not in its own manifest.
-- `safe-batches/` holds the Safe Transaction Builder batches for the custody migration, plus
-  its own README explaining which ran and which is still only prepared.
-
-**Other chains and environments**, all per-run snapshots that are not regenerated:
-
-- `asset-markets-testnet.json`, `asset-markets-web-testnet.json`, `susdai-testnet.json`,
-  `susdai-web-testnet.json` — Robinhood testnet 46630.
-- `asset-markets-base-sepolia.json`, `base-sepolia-launchpad-2026-09-16.json` — the Base
-  Sepolia integration environment, including the Across round-trip accounting.
-- `asset-markets-qa-2026-09-09.json` — one dated QA run.
-- `app-networks.json` — addresses only, in the shape the web application consumes at build
-  time. That application is not in this repository; the file is kept here because this is
-  where the addresses are decided.
+- `app-networks.json` is consumed by the application at build time. Addresses only.
+- The testnet and QA manifests are per-run snapshots and are not regenerated.
 
 The dividing rule, applied to anything you are about to write down: if a getter can answer it,
-the chain owns it and a copy here will be wrong within days. If it explains a decision, a
+the generator owns it and a copy here will be wrong within days. If it explains a decision, a
 tradeoff or a risk, it belongs here and no generator can recover it.
 
-## Adding a field
+## Adding a field to the generated file
 
-Two copies of one fact is the failure mode, not the fix: the sUSDai adapter's implementation
-address was recorded twice in the v6 manifest and the two copies disagreed for two days, which
-is why all ten ERC-1967 slots are read from chain and the manifests record none of them. If you
-add a fact that a getter can answer, delete the hand-written key it replaces in the same change.
+Add the read to `script/sync-mainnet-state.mjs` and delete the hand-written key it replaces in
+the same change. Two copies of one fact is the failure mode, not the fix: the sUSDai adapter's
+implementation address was recorded twice in the v6 manifest and the two copies disagreed for
+two days, which is why the script now reads all ten ERC-1967 slots directly and the manifest
+records none of them.
 
-Addresses were never hardcoded in the generator; they were resolved from the manifests. Four
-generations live on chain 4663 and three are abandoned, so a constant pasted from the wrong
-manifest reads the wrong contract and reports a healthy-looking lie. The same care applies to
-anything you write by hand: say which generation an address belongs to.
+Addresses in the generator are resolved from the manifests, never hardcoded. Four generations
+live on chain 4663 and three are abandoned, so a constant pasted from the wrong manifest reads
+the wrong contract and reports a healthy-looking lie.

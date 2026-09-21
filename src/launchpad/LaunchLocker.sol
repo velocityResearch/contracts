@@ -28,25 +28,28 @@ import {
 ///         that: the contract is not upgradeable, and ownership exists only to wire the
 ///         graduation module once.
 ///
-///         **What the position earns is not locked, and it is not one stream.** Pons paid the
-///         creator out of a hook fee on every swap; here the locked position is just the
-///         market's largest LP, so it earns what every LP earns — the pool's own swap fees, in
-///         the unit and in the token, and the float yield the market's vault streams through
-///         the distributor, in the unit. `collect` pulls both and splits them on two different
-///         creator rates, because they are two different things. The swap fees are the
-///         launch's own earnings and use the position's snapshotted `creatorShareBps`; the
-///         float yield is the reserve's collateral earning rather than the launch's, so it
-///         uses the factory's live `graduatedCreatorYieldShareBps`.
+///         **What the position earns is not locked — but it earns one stream, not two.** Pons
+///         paid the creator out of a hook fee on every swap; here the locked position is just
+///         the market's largest LP, so it earns what an LP earns from the pool itself: the
+///         swap fees, in the quote brand and in the launch token. `collect` pulls those and
+///         splits them on the position's snapshotted `creatorShareBps`.
 ///
-///         **Three recipients, but only two rates to reason about.** Each leg also pays the
-///         LP fund the factory's live `graduatedLpFundShareBps`, and the protocol keeps
-///         whatever is left. The fund's share is deliberately subtracted from the protocol's
-///         remainder and never from the creator's share, and that is what makes it safe for
-///         the rate to be live: raising it dilutes the protocol alone, so it can be applied
-///         to positions that graduated before the fund existed without repricing a term any
-///         creator was sold. The creator's frozen LP-fee share is still frozen; only the
-///         protocol's leg moves. All three legs credit `LaunchFeeEscrow`, where each party
-///         claims as they do for curve fees.
+///         **It earns no float yield, deliberately.** `recordPosition` calls
+///         `LpRewardDistributor.renounceRewards`, so the market's float stream divides among
+///         the liquidity providers who actually put capital at risk. Nobody owns this
+///         position and nobody funded it out of pocket; paying it a subsidy meant for
+///         liquidity would be taking that subsidy from the people providing it. The position
+///         stays staked regardless, because the distributor custodies the NFT and
+///         `collectFees` is what pays the creator.
+///
+///         **Three recipients, one rate to reason about.** The fees also pay the LP fund the
+///         factory's live `graduatedLpFundShareBps`, and the protocol keeps whatever is left.
+///         The fund's share is deliberately subtracted from the protocol's remainder and never
+///         from the creator's share, and that is what makes it safe for the rate to be live:
+///         raising it dilutes the protocol alone, so it can be applied to positions that
+///         graduated before the fund existed without repricing a term any creator was sold.
+///         All three legs credit `LaunchFeeEscrow`, where each party claims as they do for
+///         curve fees.
 ///
 ///         **Recipients are read live from `LaunchFactory`, never stored here.** A creator who
 ///         hands their fee recipient over after graduation (`acceptCreatorFeeRecipient`) must
@@ -75,11 +78,9 @@ contract LaunchLocker is Ownable2Step, ReentrancyGuard, ILaunchLocker {
     event GraduationSet(address graduation);
     event PositionLocked(address indexed token, uint256 indexed tokenId, address distributor);
     event SupplyLocked(address indexed token, uint256 amount);
-    /// @param unitFeesToCreator   The creator's share of the position's swap fees in the unit
+    /// @param unitFeesToCreator   The creator's share of the position's swap fees in the brand
     /// @param unitFeesToProtocol  The protocol's share of the same
-    /// @param yieldToCreator      The creator's share of the float-yield stream, in the unit
-    /// @param yieldToProtocol     The protocol's share of the same
-    /// @param unitToLpFund        The LP fund's share of both unit legs, added together
+    /// @param unitToLpFund        The LP fund's share of the same
     /// @param tokenToLpFund       The LP fund's share of the swap fees in the launch token
     event Collected(
         address indexed token,
@@ -87,8 +88,6 @@ contract LaunchLocker is Ownable2Step, ReentrancyGuard, ILaunchLocker {
         uint256 unitFeesToProtocol,
         uint256 tokenToCreator,
         uint256 tokenToProtocol,
-        uint256 yieldToCreator,
-        uint256 yieldToProtocol,
         uint256 unitToLpFund,
         uint256 tokenToLpFund
     );
@@ -152,6 +151,12 @@ contract LaunchLocker is Ownable2Step, ReentrancyGuard, ILaunchLocker {
             revert PositionNotStaked(position.tokenId);
         }
 
+        // The position stays staked — the distributor holds the NFT, and `collectFees` is how
+        // the creator is paid — but it gives up the reward stream that rides alongside it.
+        // Idempotent, and one-way: a second graduation into the same market finds this locker
+        // already renounced. See `LpRewardDistributor.renounceRewards`.
+        LpRewardDistributor(position.distributor).renounceRewards();
+
         _positions[token] = LockedPosition({
             tokenId: position.tokenId,
             distributor: position.distributor,
@@ -186,39 +191,26 @@ contract LaunchLocker is Ownable2Step, ReentrancyGuard, ILaunchLocker {
     ///      measurement — what is paid out is only what arrived in this call, so the balance
     ///      never drops below `lockedSupply`.
     ///
-    ///      The unit balance is read a second time BETWEEN the two pulls, and that is the
-    ///      whole mechanism behind the two rates: swap fees and yield rewards both arrive in
-    ///      the unit, in the same call, from the same contract, so nothing distinguishes them
-    ///      after the fact. Measuring in between is what makes them separable at all.
-    ///
-    ///      `claim` reverts on nothing earned, which is right for an LP and wrong here, where
-    ///      swap fees may have accrued while the float stream is idle; `earned` is checked
-    ///      first so a dry stream never blocks the fee leg. The distributor's own guard still
-    ///      applies: a paused protocol pauses `collect` too.
+    ///      There is no second read between two pulls any more, because there is only one
+    ///      pull. The reward stream this position used to claim was renounced when it was
+    ///      recorded, so everything that arrives here is swap fees and the two streams no
+    ///      longer have to be told apart. The distributor's own guard still applies: a paused
+    ///      protocol pauses `collect` too.
     function collect(address token)
         external
         nonReentrant
-        returns (uint256 unitOut, uint256 tokenOut, uint256 yieldOut)
+        returns (uint256 unitOut, uint256 tokenOut)
     {
         LockedPosition memory p = _positions[token];
         if (!p.exists) revert NotLocked(token);
 
-        LpRewardDistributor distributor = LpRewardDistributor(p.distributor);
-
         uint256 unitBefore = IERC20(p.unit).balanceOf(address(this));
         uint256 tokenBefore = IERC20(token).balanceOf(address(this));
 
-        distributor.collectFees(p.tokenId);
+        LpRewardDistributor(p.distributor).collectFees(p.tokenId);
 
-        uint256 unitAfterFees = IERC20(p.unit).balanceOf(address(this));
-        uint256 feeUnit = unitAfterFees - unitBefore;
+        unitOut = IERC20(p.unit).balanceOf(address(this)) - unitBefore;
         tokenOut = IERC20(token).balanceOf(address(this)) - tokenBefore;
-
-        if (distributor.earned(address(this)) != 0) {
-            distributor.claim(p.unit);
-            yieldOut = IERC20(p.unit).balanceOf(address(this)) - unitAfterFees;
-        }
-        unitOut = feeUnit + yieldOut;
 
         address creator = ILaunchFactory(factory).creatorFeeRecipientOf(token);
         address protocol = ILaunchFeePolicy(factory).protocolFeeRecipient();
@@ -227,13 +219,8 @@ contract LaunchLocker is Ownable2Step, ReentrancyGuard, ILaunchLocker {
 
         // Bounded by the factory's setters. Checked anyway, because the factory is a proxy and
         // an out-of-range rate here would pay one recipient out of another's leg.
-        uint16 yieldShareBps = ILaunchFactory(factory).graduatedCreatorYieldShareBps();
         uint16 lpFundShareBps = ILaunchFactory(factory).graduatedLpFundShareBps();
-        if (yieldShareBps > BPS_DENOMINATOR) revert ShareTooHigh(yieldShareBps);
         if (uint256(p.creatorShareBps) + lpFundShareBps > BPS_DENOMINATOR) {
-            revert ShareTooHigh(lpFundShareBps);
-        }
-        if (uint256(yieldShareBps) + lpFundShareBps > BPS_DENOMINATOR) {
             revert ShareTooHigh(lpFundShareBps);
         }
         // Only resolved when it is actually owed something, so a position whose launch
@@ -247,37 +234,27 @@ contract LaunchLocker is Ownable2Step, ReentrancyGuard, ILaunchLocker {
         // The creator's share is the rate their launch was sold on; the fund's is live and is
         // subtracted from what would otherwise all be the protocol's, so moving it can never
         // reprice the creator.
-        uint256 unitFeesToCreator = feeUnit * p.creatorShareBps / BPS_DENOMINATOR;
-        uint256 unitFeesToLpFund = feeUnit * lpFundShareBps / BPS_DENOMINATOR;
-        uint256 yieldToCreator = yieldOut * yieldShareBps / BPS_DENOMINATOR;
-        uint256 yieldToLpFund = yieldOut * lpFundShareBps / BPS_DENOMINATOR;
+        uint256 unitToCreator = unitOut * p.creatorShareBps / BPS_DENOMINATOR;
+        uint256 unitToLpFund = unitOut * lpFundShareBps / BPS_DENOMINATOR;
         uint256 tokenToCreator = tokenOut * p.creatorShareBps / BPS_DENOMINATOR;
         uint256 tokenToLpFund = tokenOut * lpFundShareBps / BPS_DENOMINATOR;
 
-        // One credit per recipient per asset: the two unit legs are added back together for
-        // payment and reported apart in the event. The protocol takes the remainder on every
-        // asset, so each asset's credits sum to exactly what arrived.
-        _credit(escrow, creator, p.unit, unitFeesToCreator + yieldToCreator);
-        _credit(escrow, lpFund, p.unit, unitFeesToLpFund + yieldToLpFund);
-        _credit(
-            escrow,
-            protocol,
-            p.unit,
-            unitOut - unitFeesToCreator - yieldToCreator - unitFeesToLpFund - yieldToLpFund
-        );
+        // The protocol takes the remainder on every asset, so each asset's credits sum to
+        // exactly what arrived and the rounding dust is never stranded here.
+        _credit(escrow, creator, p.unit, unitToCreator);
+        _credit(escrow, lpFund, p.unit, unitToLpFund);
+        _credit(escrow, protocol, p.unit, unitOut - unitToCreator - unitToLpFund);
         _credit(escrow, creator, token, tokenToCreator);
         _credit(escrow, lpFund, token, tokenToLpFund);
         _credit(escrow, protocol, token, tokenOut - tokenToCreator - tokenToLpFund);
 
         emit Collected(
             token,
-            unitFeesToCreator,
-            feeUnit - unitFeesToCreator - unitFeesToLpFund,
+            unitToCreator,
+            unitOut - unitToCreator - unitToLpFund,
             tokenToCreator,
             tokenOut - tokenToCreator - tokenToLpFund,
-            yieldToCreator,
-            yieldOut - yieldToCreator - yieldToLpFund,
-            unitFeesToLpFund + yieldToLpFund,
+            unitToLpFund,
             tokenToLpFund
         );
     }

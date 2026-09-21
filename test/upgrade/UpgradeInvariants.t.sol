@@ -51,8 +51,28 @@ contract Probe_ProtocolGuard is ProtocolGuard {
     uint256 public layoutProbe;
 }
 
+/// @dev **The one probe that does not use a `public` state variable, and it is not a style
+///      choice.** `AssetMarketFactory` is the largest contract in the repo and sits ~200
+///      bytes under EIP-170, so this probe has to cost what the other eight cost: the parent
+///      plus the appended slot, and nothing else. Measured on 2026-09-21, all three variants
+///      compiled side by side against a 24,365-byte parent:
+///
+///        `is AssetMarketFactory {}`                        24,365  (+0, byte-identical)
+///        `uint256 private _p;` + explicit getter           24,406  (+41)
+///        `uint256 public layoutProbe;`                     25,403  (+1,038)
+///
+///      The slot is the same either way — `private` and `public` are both one appended
+///      `uint256` — and the `layoutProbe()` selector `ILayoutProbe` calls is the same. The
+///      only difference is that solc's auto-generated getter perturbs the optimizer in a
+///      contract this size, and 1,038 bytes is 827 over the limit. The other eight probes
+///      pay +40 for the auto-getter and are nowhere near the limit, so they are left alone.
+///      If one of them ever approaches it, this is the shape to copy.
 contract Probe_AssetMarketFactory is AssetMarketFactory {
-    uint256 public layoutProbe;
+    uint256 private _layoutProbe;
+
+    function layoutProbe() external view returns (uint256) {
+        return _layoutProbe;
+    }
 }
 
 contract Probe_MarketRouter is MarketRouter {
@@ -154,13 +174,19 @@ contract UpgradeInvariantsTest is Test {
         _assertFootprint("MorphoBlueYieldSource", address(new Probe_MorphoBlueYieldSource()), 54);
         _assertFootprint("SUSDaiHub", address(new Probe_SUSDaiHub()), 59);
         _assertFootprint("ProtocolGuard", address(new Probe_ProtocolGuard()), 50);
-        // The market layer — factory, router, fee hook — is deliberately NOT pinned here. It
-        // is being rebuilt (the buyback engine and lockbox replaced by an LP reward
-        // distributor), and a footprint constant for a contract mid-restructure is a tripwire
-        // that fires on legitimate work rather than on an accidental reorder, which is the only
-        // thing this test is for. Add the three back, with measured constants, once that
-        // refactor lands and its beacons are deployed — at which point their layouts become
-        // upgrade-relevant in the same way the six above already are.
+        // `AssetMarketFactory` is pinned now, and this is the change that earned it. Its own
+        // block runs to `launchFloatOf` at slot 25 and `uint256[38] __gap` at 26..63, so it
+        // occupies 64 slots — exactly what it occupied when `launchpad` was the last field
+        // and the gap was 39, because the graduate-into-launch-dollar branch appended
+        // `launchFloatOf` and took the slot back out of the gap. That is the one arithmetic
+        // an in-place upgrade of a live proxy may not get wrong, and the probe is what makes
+        // getting it wrong fail here instead of on chain.
+        _assertFootprint("AssetMarketFactory", address(new Probe_AssetMarketFactory()), 64);
+        // The router and the fee hook are still deliberately NOT pinned. Neither sits behind
+        // a proxy this branch upgrades, and a footprint constant for a contract nobody is
+        // upgrading in place is a tripwire that fires on legitimate work rather than on an
+        // accidental reorder, which is the only thing this test is for. Add them with
+        // measured constants when they are next upgraded behind their live proxies.
     }
 
     /// @dev Writes a marker at the slot the appended probe is expected to occupy; the probe

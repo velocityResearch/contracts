@@ -604,14 +604,27 @@ contract LaunchRouterTest is LaunchpadFixture {
         );
         launchRouter.previewSell(notALaunch, 1);
 
-        // A brand with no launch economics carries no reserve and no launch fee to read, and
-        // is refused before anything is pulled.
+        // A brand whose issuer never opted into sharing its float yield could never be
+        // launched in, and the factory says so before the router pulls anything.
         vm.expectRevert(
-            abi.encodeWithSelector(LaunchRouter.PairTokenNotApproved.selector, altBrand)
+            abi.encodeWithSelector(LaunchFactory.PairTokenFloatShareUnavailable.selector, altBrand)
         );
         launchRouter.launchAndBuy(
             _params("AAA"), launchConfigId, altBrand, new address[](0), QUOTE_IN, 0, _deadline()
         );
+
+        // And a brand of a reserve the owner has closed to new launches: launchable in
+        // principle, refused today, again before anything is pulled.
+        vm.prank(owner);
+        launchFactory.setReserveApproved(address(reserve), false);
+        vm.expectRevert(
+            abi.encodeWithSelector(LaunchRouter.PairTokenNotApproved.selector, quoteBrand)
+        );
+        launchRouter.launchAndBuy(
+            _params("AAA"), launchConfigId, quoteBrand, new address[](0), QUOTE_IN, 0, _deadline()
+        );
+        vm.prank(owner);
+        launchFactory.setReserveApproved(address(reserve), true);
 
         (address token,,) = _launchPayingQuote(payer, "BBB", 0, 0);
         _warpPastSnipeWindow();

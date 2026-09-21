@@ -465,7 +465,8 @@ a live proxy. **20 of the 21 are `exact_match`. One is not:** `AssetMarketFactor
 implementation `0x45Ce2F93aD46d1393Eff5da56fFc4537740022C0` is a metadata-level `match`, meaning
 its source is authoritative and its metadata hash is not. Confirmed live against the Sourcify v2
 API while writing this document, alongside the hook implementation
-`0xd4AC6b17338866E43E1922cfb563A81Ff36b425B`, which is `exact_match`.
+`0xfe4014D1ee20cC77349fAd24C1e9CeA69b03db03` (live since 2026-09-21; its predecessor
+`0xd4AC6b17338866E43E1922cfb563A81Ff36b425B` before that), both `exact_match`.
 
 Check any single address:
 
@@ -490,8 +491,8 @@ behind a Cloudflare challenge that returns an HTML interstitial to `forge verify
 submitting there is not possible. Worse, do not trust what it already shows: at the time of
 writing the explorer renders the hook proxy as a verified `contracts/StubContract.sol` compiled
 with solc `v0.8.7+commit.e28d00a7`. That is neither our source nor our compiler. It is a bogus
-match occupying the address, and the implementation `0xd4AC6b17338866E43E1922cfb563A81Ff36b425B`
-reads as unverified there despite being `exact_match` on Sourcify. Treat Sourcify as
+match occupying the address, and the implementation `0xfe4014D1ee20cC77349fAd24C1e9CeA69b03db03`
+may read as unverified there despite being `exact_match` on Sourcify. Treat Sourcify as
 authoritative and Blockscout as decoration.
 
 Do not pin an implementation address in any configuration. Section 3 means implementations move.

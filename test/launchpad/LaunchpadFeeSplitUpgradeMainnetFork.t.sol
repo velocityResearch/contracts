@@ -20,16 +20,15 @@ import {IPermit2, IPositionManagerV4} from "../../src/interfaces/IPositionManage
 /// @notice Proves `UpgradeLaunchpadFeeSplitMainnet` against live Robinhood Chain state, from the
 ///         account that owns it. The upgrade has landed; this re-sends it on a fork.
 ///
-/// @dev    The economics of the two-rate split are proved offline, on a stack this suite builds
-///         from scratch (`LaunchLockerTest`, `LaunchJourneyV4Fork`). What only live state can
-///         answer is whether the upgrade lands on the deployed proxy without disturbing it, and
-///         that is this file's job:
+/// @dev    The economics of the graduated split are proved offline, on a stack this suite
+///         builds from scratch (`LaunchLockerTest`, `LaunchJourneyV4Fork`). What only live
+///         state can answer is whether the upgrade lands on the deployed proxy without
+///         disturbing it, and that is this file's job:
 ///
-///         - the new `graduatedCreatorYieldShareBps` shares a slot with two variables the live
-///           proxy has already written, so if the packing is wrong the damage shows up as a
-///           moved mapping rather than as a compile error;
-///         - the rate has to be *set* after the upgrade, because the live proxy's `initialize`
-///           ran under the old default and will never run again;
+///         - the retired `__retiredGraduatedCreatorYieldShareBps` still occupies the two bytes
+///           between `launchEnabled` and `lpFundRecipient` on a slot the live proxy has
+///           already written, so if the packing is wrong the damage shows up as a moved
+///           `lpFundRecipient` or a moved mapping rather than as a compile error;
 ///         - the locker is not upgradeable, so the link has to be rotated across three
 ///           contracts, one of which is owned by a different factory;
 ///         - and the link has to survive the rotation with the old locker left holding nothing,
@@ -107,6 +106,7 @@ contract LaunchpadFeeSplitUpgradeMainnetForkTest is Test {
         uint256 protocolFeeShareBefore = factory.protocolFeeShareBps();
         uint256 launchCountBefore = factory.launchCount();
         bool enabledBefore = factory.launchEnabled();
+        address lpFundRecipientBefore = factory.lpFundRecipient();
 
         (LaunchLocker locker, LaunchGraduation graduation) = _upgrade();
 
@@ -115,13 +115,14 @@ contract LaunchpadFeeSplitUpgradeMainnetForkTest is Test {
         console.log("implementation before:", implementationBefore);
         console.log("implementation after: ", implementationAfter);
 
-        // The slot the new variables pack into also holds `launchEnabled`. A bad layout shows
-        // up here, or in the mapping reads below. These are the live 40/30/30 split: the
-        // creator takes 40% of graduated fees, the LP fund 30%, the protocol the rest.
+        // The slot the retired yield share sits on also holds `launchEnabled` and, two bytes
+        // past it, `lpFundRecipient`. A bad layout shows up here, or in the mapping reads
+        // below. These are the live 40/30/30 split: the creator takes 40% of graduated fees,
+        // the LP fund 30%, the protocol the rest.
         assertEq(factory.graduatedCreatorShareBps(), 4_000, "creator keeps 40%");
         assertEq(factory.graduatedLpFundShareBps(), 3_000, "the LP fund takes 30%");
-        assertEq(factory.graduatedCreatorYieldShareBps(), 4_000, "and 40% of the yield");
         assertEq(factory.lpFundShareBps(), 3_000, "the curve-fee LP fund share matches");
+        assertEq(factory.lpFundRecipient(), lpFundRecipientBefore, "the LP fund did not slide");
         assertEq(factory.launchEnabled(), enabledBefore, "and launchEnabled is untouched");
 
         // Everything else on the proxy reads back exactly as it did.
@@ -184,41 +185,6 @@ contract LaunchpadFeeSplitUpgradeMainnetForkTest is Test {
                 "the new default did not reach a launch already on a curve"
             );
         }
-    }
-
-    /// @notice The knob the whole change exists for: settable after the upgrade, bounded, and
-    ///         effective on every position rather than snapshotted like the fee share.
-    ///
-    ///         The ceiling is not a flat 10,000. The creator's yield share and the LP fund's
-    ///         graduated share are drawn from the same 10,000, so with the fund on 3,000 the
-    ///         creator can reach 7,000 and no further. That coupling is the thing worth
-    ///         pinning: it is what stops the two knobs from together over-committing the pot.
-    function test_fork_theYieldKnobIsLiveAndBounded() public {
-        _upgrade();
-
-        uint256 lpFund = factory.graduatedLpFundShareBps();
-        uint16 ceiling = uint16(10_000 - lpFund);
-
-        vm.prank(SAFE);
-        factory.setGraduatedCreatorYieldShareBps(5_000);
-        assertEq(factory.graduatedCreatorYieldShareBps(), 5_000, "moved");
-
-        vm.prank(SAFE);
-        factory.setGraduatedCreatorYieldShareBps(ceiling);
-        assertEq(factory.graduatedCreatorYieldShareBps(), ceiling, "the ceiling is reachable");
-
-        vm.prank(SAFE);
-        vm.expectRevert(LaunchFactory.InvalidBasisPoints.selector);
-        factory.setGraduatedCreatorYieldShareBps(ceiling + 1);
-
-        address stranger = address(0xBEEF);
-        vm.prank(stranger);
-        vm.expectRevert();
-        factory.setGraduatedCreatorYieldShareBps(0);
-
-        vm.prank(SAFE);
-        factory.setGraduatedCreatorYieldShareBps(4_000);
-        assertEq(factory.graduatedCreatorYieldShareBps(), 4_000, "and back to the live value");
     }
 
     /// @notice The old locker keeps whatever it holds. Nothing in this upgrade migrates a

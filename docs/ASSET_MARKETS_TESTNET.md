@@ -129,22 +129,36 @@ forge test --match-contract AssetMarketsTestnetTest -vv
 A passing fork test is contract evidence, not browser acceptance, and simulated yield is not
 evidence of a live Morpho integration.
 
-## Signing, and what is not in this repository
+## Local Chrome QA wallet bridge
 
-The deploy and seed scripts read a public `DEPLOYER` address and never a private key, so the
-signer is supplied by `--account` against an encrypted keystore and nothing secret is ever on
-a command line or in the tree.
+`script/asset-markets-qa-wallet.mjs` is an EIP-1193 bridge bound only to `127.0.0.1:18545`. It
+accepts exactly the browser origin `http://localhost:3002` (`script/asset-markets-qa-wallet.mjs:17`,
+`:87`). It reads its private key only at runtime from a file outside the repository and never
+returns or logs it.
 
-There used to be a local Chrome QA wallet bridge here, `script/asset-markets-qa-wallet.mjs`
-plus its `node --test` suite, which brokered signing for a browser QA session against a
-Next.js instance on port 3002. Both files imported from the web application and did not
-survive the extraction of this contracts-only tree, and the application they served is not in
-this repository either. Nothing in `src/`, `test/` or `script/` depends on them, and the
-deployed application never had a key or signing-server dependency. If you find a reference to
-`node script/asset-markets-qa-wallet.mjs` anywhere, it is stale.
+Create a **public-address-only** JSON config outside the repository with `factory`, `router`,
+`reserve`, `usdg`, `asset`, `yieldSource`, `positionManager` and `actors`, an explicit array of
+authorised addresses; the signer must itself appear in `actors` (`:120-128`). Every address must
+come from the actual deployment.
 
-For contract-level exercise, drive the flows above with `cast` against the testnet RPC, or run
-the offline and fork suite described in the previous section. Neither needs a browser.
+```sh
+QA_WALLET_CONFIG=/private/tmp/asset-markets-qa-public-config.json node script/asset-markets-qa-wallet.mjs
+```
+
+Start the separate Next.js testnet instance on port 3002 with
+`NEXT_PUBLIC_QA_WALLET_URL=http://127.0.0.1:18545`. The QA connector exists only behind that
+environment opt-in and the testnet chain setting, and the provider refuses non-local browser
+hosts and ports. The deployed application has no key or signing server dependency. Stop the
+bridge when QA ends.
+
+Signing rejects nonzero native value, the wrong chain or sender, unknown targets and selectors,
+nonce or authorization overrides, unlimited approvals, unknown recipients and excessive amounts.
+Only the configured router and reserve may receive approvals. Raw signing, typed-data signing,
+raw-transaction broadcasts and arbitrary provider methods are unavailable. Yield injection stays
+CLI-owned because the bridge never approves the yield source. It broadcasts real testnet
+transactions and waits for real receipts; it does not fake balances, RPC state or success.
+
+Run its offline rejection tests with `node --test script/asset-markets-qa-wallet.test.mjs`.
 
 ## Network
 

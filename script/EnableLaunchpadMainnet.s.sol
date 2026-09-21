@@ -15,11 +15,15 @@ interface IMarketFactory {
 
 /// @title EnableLaunchpadMainnet
 /// @notice Opens launching on an already-deployed launchpad by registering the quote brand every
-///         launch trades against, writing its economics, and flipping the switch.
+///         launch trades against, writing its reserve's economics, and flipping the switch.
+///
+///         **Economics are keyed by reserve, not by brand.** Opening `QUOTE_RESERVE` makes every
+///         brand registered on it launchable -- the one this script registers, and any issued
+///         afterwards -- with no further owner action.
 ///
 ///         **This is the irreversible step.** Everything before it deployed code that nobody
-///         could reach: `launchEnabled` was false and no quote brand existed, so the launchpad
-///         reverted on every call. After this script anyone with the quote brand can create a
+///         could reach: `launchEnabled` was false and no reserve carried economics, so the
+///         launchpad reverted on every call. After this script anyone with the quote brand can create a
 ///         token, and a token that reaches its graduation threshold opens a real Uniswap v4
 ///         market whose skim recipient and fee pips are bound once and for all.
 ///
@@ -84,22 +88,20 @@ contract EnableLaunchpadMainnet is Script {
 
         (quoteBrand,) = reserve.registerBrand(name, symbol, admin);
 
-        // Economics first, switch second. `setPairTokenEconomics` is where every validation
-        // lives -- brand registered on the reserve, reserve known to the market factory,
-        // decimals matching the token's own -- so the figures are readable and checked before
-        // anything is allowed to launch against them.
-        launch.setPairTokenEconomics(
-            quoteBrand,
-            LaunchFactory.PairTokenEconomics({
-                reserve: address(reserve),
+        // One call on the reserve, not on the brand. `setReserveEconomics` is where every
+        // validation lives -- reserve known to the market factory, its `assetDecimals` matching
+        // the figure supplied, the curve quotable -- and it carries the open, so the switch is
+        // written together with the figures it was checked against.
+        launch.setReserveEconomics(
+            address(reserve),
+            LaunchFactory.ReserveEconomics({
                 phantomQuote: phantomQuote,
                 graduationThreshold: graduationThreshold,
                 launchFee: launchFee,
                 decimals: QUOTE_DECIMALS,
-                approved: false
+                approved: true
             })
         );
-        launch.setPairTokenApproved(quoteBrand, true);
         launch.setLaunchEnabled(true);
 
         vm.stopBroadcast();

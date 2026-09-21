@@ -43,10 +43,11 @@ import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 ///         unspecified leg, floored.
 ///
 ///         **Not modelled, because these pools cannot express it.** A `beforeSwap` LP-fee
-///         override (`ProtocolFeeHook` returns 0 unconditionally), a `beforeSwapReturnDelta`
-///         that moves the specified amount (it returns `ZERO_DELTA` unconditionally), and
-///         dynamic fees (no market pool is created with `DYNAMIC_FEE_FLAG`). A hook that did
-///         any of those would need this library changed alongside it.
+///         override (`ProtocolFeeHook` returns 0 unconditionally) and a `beforeSwapReturnDelta`
+///         that moves the specified amount (it returns `ZERO_DELTA` unconditionally). A hook
+///         that did either would need this library changed alongside it. Dynamic-fee pools
+///         (`DYNAMIC_FEE_FLAG`) need nothing here: `Pool.swap` charges the stored `slot0.lpFee`
+///         and so does `_swap`, so a keeper-set rate is replayed exactly.
 library V4SwapSimulator {
     using StateLibrary for IPoolManager;
     using PoolIdLibrary for PoolKey;

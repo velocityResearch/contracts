@@ -33,19 +33,48 @@ bracket_spacing = false
 
 # ─── Robinhood Chain mainnet ─────────────────────────────────────────────
 #
-# No contract in this repo exceeds the 24,576-byte EIP-170 limit, so mainnet deploys need no
-# special flags. `AssetMarketFactory` used to: it embedded `MarketYieldSplitter`'s creation
-# code and compiled to ~26.7KB, which forced `--code-size-limit 32768` on every `forge script`
-# run that deployed it. Commit 6a86098 moved that creation code behind `SplitterDeployer`, and
-# the factory is now 8,764 bytes. Re-measured 2026-09-09.
+# No contract in this repo exceeds the 24,576-byte EIP-170 limit, but the margin is thin, and it
+# is only this wide because two contracts keep a helper's creation code somewhere else.
+# Re-measured 2026-09-21 on this branch with `forge build --sizes`. Everything within 2KB of the
+# limit, runtime size and margin:
 #
-# Check before assuming, since the figure drifts as the splitter grows:
-#   forge build --sizes --offline | grep -E "AssetMarketFactory|SplitterDeployer"
+#   Probe_AssetMarketFactory  24,406  (+  170)   test-only, see below
+#   AssetMarketFactory        24,365  (+  211)
+#
+# Nothing else is near it. For scale, the next largest things this branch touches:
+#   LaunchFactory 20,287 (+4,289), LaunchGraduation 9,056, LpRewardDistributor 8,980,
+#   LaunchGuardDeployer 3,203.
+#
+# **`Probe_AssetMarketFactory` is what hits the limit first, at 170 bytes.** It is a test-only
+# footprint probe in `test/upgrade/UpgradeInvariants.t.sol` — `AssetMarketFactory` plus one
+# appended `uint256` and an explicit getter, 41 bytes over its parent — and it exists so that
+# the build fails before a real storage slot is added that would not fit. So 170, not 211, is
+# the headroom to plan against: the last 211 bytes of the factory cannot all be spent without
+# breaking the probe, and the probe is the early warning.
+#
+# `AssetMarketFactory` fits at all because `MarketDeployer` holds the vault's and the LP reward
+# distributor's creation code.
+#
+# `LaunchFactory` fits because of the same move, and it did not fit without it: `initialize`
+# calls `new LaunchGraduationGuard()`, a contract that writes `new X(...)` carries X's entire
+# creation code, and that put the factory over the limit. Extracting that one `new` into the
+# external library `src/launchpad/libraries/LaunchGuardDeployer.sol` (`LaunchFactory.sol:435`)
+# is what brought it under — same ABI, same storage layout, same behaviour. The library call is
+# a DELEGATECALL, so the guard still deploys from the proxy's own nonce. Today's 4,289 bytes of
+# margin are the result of that extraction, not evidence it was unnecessary.
+#
+# Both therefore need a LINK STEP at deploy time; `script/DeployLaunchpad.s.sol:236` and
+# `script/DeployAssetMarkets.s.sol:601` assert the library is linked before they spend anything.
+#
+# Check before assuming, since every figure here drifts as the helpers grow:
+#   forge build --sizes | grep -E "AssetMarketFactory|LaunchFactory"
 #
 # If a contract ever goes over again, note that `code_size_limit` here does NOT rescue it:
 # forge runs a separate size check between simulation and broadcast that reads only the CLI
 # flag, so an oversized deploy simulates cleanly, prints its addresses, and then refuses to
-# broadcast. Tested against a mainnet fork on 2026-09-09, while the factory was still oversized.
+# broadcast. Tested against a mainnet fork on 2026-09-09, while `AssetMarketFactory` was still
+# oversized. Lowering `optimizer_runs` is not the answer either: it is a gas regression on
+# every user of every contract here. Move code out instead.
 
 # NO [etherscan] SECTION, AND THIS IS LOAD-BEARING. It used to carry a Blockscout entry
 # `robinhood = { key = "${ROBINHOOD_EXPLORER_API_KEY}", chain = 4663, url = ... }`.

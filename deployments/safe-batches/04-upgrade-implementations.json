@@ -1,0 +1,55 @@
+{
+  "version": "1.0",
+  "chainId": "4663",
+  "createdAt": 1790032263000,
+  "meta": {
+    "name": "Upgrade six implementations: graduate into launch dollar + keeper LP fees",
+    "description": "Three UUPS proxies (AssetMarketFactory, LaunchFactory, ProtocolFeeHook) with empty calldata and three beacons (treasury, fee vault, distributor). Graduation is closed from the first proxy upgrade until batch 05 wires the new module. No rate, recipient or keeper changes here.",
+    "txBuilderVersion": "1.16.5",
+    "createdFromSafeAddress": "0x28569c1716EF81f307d666A1EC08bDAE92AC0373"
+  },
+  "transactions": [
+    {
+      "to": "0x22AA61c589B90731752236c07d1455D0065bfc79",
+      "value": "0",
+      "data": "0x4f1ef28600000000000000000000000077153c0482e393375f25cbdbfe47e204d22cf95100000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0x95fe000285DA7797cC01394cCc410628B26e898d",
+      "value": "0",
+      "data": "0x4f1ef2860000000000000000000000001fd586d714f66c120aa258ce29671634cff556bc00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0xc9932584c5154e4F58313a2e5423522E74e540Cc",
+      "value": "0",
+      "data": "0x4f1ef286000000000000000000000000fe4014d1ee20cc77349fad24c1e9cea69b03db0300000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0xf8b758dfb9d22448Ab13C7FcC1f23b75A998C34E",
+      "value": "0",
+      "data": "0x3659cfe6000000000000000000000000317d1c9319e461658f6716382dcf81d0c39c8a77",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0x65876276feE875e1A120F63575150593E6AEa0d3",
+      "value": "0",
+      "data": "0x3659cfe600000000000000000000000057f700f8abc9fb73b9ee6e5297304421f041065d",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0xb6b86f5A01d8c04f68f827532C8aCE9458Db57a6",
+      "value": "0",
+      "data": "0x3659cfe6000000000000000000000000ce9f3b9e864edd05a64544b228c509e6ff63fb44",
+      "contractMethod": null,
+      "contractInputsValues": null
+    }
+  ]
+}

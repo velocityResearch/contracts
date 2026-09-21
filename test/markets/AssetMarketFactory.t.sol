@@ -967,44 +967,53 @@ contract AssetMarketFactoryTest is Test, StackFixture {
 
     // ─── The launchpad seam ──────────────────────────────────────────────
     //
-    // `createLaunchMarket` is `createMarket` with the approval folded into the call: the
-    // launchpad's graduation module supplies the listing and is the only caller. What these
-    // pin is that the gate is real, that the listing is held to `approveAsset`'s standard, and
-    // that the market it opens is an ordinary one — attributed to the launch's creator, priced
-    // from the listing, and invisible to the owner's asset list.
+    // `createLaunchMarket` is `createMarket` with the approval folded into the call and the
+    // quote brand supplied rather than minted: the launchpad's graduation module is the only
+    // caller, and the brand it names is the dollar the launch was already quoted in. What
+    // these pin is that the gate is real, that the listing is held to the standard that still
+    // applies to it, and that the market it opens is an ordinary one — attributed to the
+    // launch's creator, priced from the listing, invisible to the owner's asset list, and
+    // making no claim at all on the brand it merely quotes.
 
-    function _launch(address a, address who)
+    /// @dev A quote brand of the kind a launch is priced in: registered through this factory
+    ///      so `reserveOfBrand` names its reserve, and owned by whoever registered it. Zero
+    ///      `reserve` selects the factory's default.
+    function _quoteBrand(string memory symbol, address reserve) internal returns (address brand) {
+        (brand,) = factory.registerBrand(
+            "Quote Dollar",
+            symbol,
+            PooledBrandToken.Metadata({description: "", logo: "", socials: ""}),
+            reserve
+        );
+    }
+
+    function _launch(address a, address brand, address who)
         internal
-        returns (
-            uint256 marketId,
-            address brandToken,
-            address feeVault,
-            address lpDistributor,
-            bytes32 poolId
-        )
+        returns (uint256 marketId, address feeVault, address lpDistributor, bytes32 poolId)
     {
         // Built first: the helper reads the asset's symbol, and a prank binds to the next call.
         AssetMarketFactory.AssetListing memory l = _launchListing(a, PRICE);
         vm.prank(launchpad);
-        return factory.createLaunchMarket(a, address(0), who, l);
+        return factory.createLaunchMarket(a, brand, address(0), who, l);
     }
 
     function test_createLaunchMarket_isTheLaunchpadsAlone() public {
+        address brand = _quoteBrand("qUSD", address(0));
         AssetMarketFactory.AssetListing memory l = _launchListing(address(asset), PRICE);
 
         // Nobody, until the owner names someone — not even the owner.
         vm.prank(owner);
         vm.expectRevert(AssetMarketFactory.OnlyLaunchpad.selector);
-        factory.createLaunchMarket(address(asset), address(0), creator, l);
+        factory.createLaunchMarket(address(asset), brand, address(0), creator, l);
 
         _setLaunchpad(factory, launchpad);
 
         vm.prank(alice);
         vm.expectRevert(AssetMarketFactory.OnlyLaunchpad.selector);
-        factory.createLaunchMarket(address(asset), address(0), creator, l);
+        factory.createLaunchMarket(address(asset), brand, address(0), creator, l);
 
         vm.prank(launchpad);
-        (uint256 id,,,,) = factory.createLaunchMarket(address(asset), address(0), creator, l);
+        (uint256 id,,,) = factory.createLaunchMarket(address(asset), brand, address(0), creator, l);
         assertEq(factory.marketFor(address(0), address(asset)), id);
     }
 
@@ -1012,10 +1021,11 @@ contract AssetMarketFactoryTest is Test, StackFixture {
         _setLaunchpad(factory, launchpad);
         _setLaunchpad(factory, address(0));
 
+        address brand = _quoteBrand("qUSD", address(0));
         AssetMarketFactory.AssetListing memory l = _launchListing(address(asset), PRICE);
         vm.prank(launchpad);
         vm.expectRevert(AssetMarketFactory.OnlyLaunchpad.selector);
-        factory.createLaunchMarket(address(asset), address(0), creator, l);
+        factory.createLaunchMarket(address(asset), brand, address(0), creator, l);
     }
 
     function test_setLaunchpad_isOwnerOnly() public {
@@ -1025,9 +1035,11 @@ contract AssetMarketFactoryTest is Test, StackFixture {
     }
 
     /// @notice The launchpad is trusted to call, not to choose well: a listing it could not
-    ///         have got past `approveAsset` does not get past here either.
+    ///         have got past `approveAsset` does not get past here either. The unit's name and
+    ///         symbol are the one exception, and deliberately so — this listing mints no unit.
     function test_createLaunchMarket_holdsTheListingToApproveAssetsStandard() public {
         _setLaunchpad(factory, launchpad);
+        address brand = _quoteBrand("qUSD", address(0));
         AssetMarketFactory.AssetListing memory l = _launchListing(address(asset), PRICE);
 
         l.fee = 1234;
@@ -1035,89 +1047,109 @@ contract AssetMarketFactoryTest is Test, StackFixture {
         vm.expectRevert(
             abi.encodeWithSelector(AssetMarketFactory.UnsupportedFeeTier.selector, 1234)
         );
-        factory.createLaunchMarket(address(asset), address(0), creator, l);
+        factory.createLaunchMarket(address(asset), brand, address(0), creator, l);
         l.fee = 5_000;
 
         l.assetPriceE18 = 0;
         vm.prank(launchpad);
         vm.expectRevert(AssetMarketFactory.ZeroAmount.selector);
-        factory.createLaunchMarket(address(asset), address(0), creator, l);
+        factory.createLaunchMarket(address(asset), brand, address(0), creator, l);
         l.assetPriceE18 = PRICE;
-
-        l.unitName = "";
-        vm.prank(launchpad);
-        vm.expectRevert(AssetMarketFactory.EmptyUnitMetadata.selector);
-        factory.createLaunchMarket(address(asset), address(0), creator, l);
-        l.unitName = "x";
 
         l.observationCardinality = factory.MAX_OBSERVATION_CARDINALITY() + 1;
         vm.prank(launchpad);
         vm.expectRevert(AssetMarketFactory.CardinalityTooHigh.selector);
-        factory.createLaunchMarket(address(asset), address(0), creator, l);
+        factory.createLaunchMarket(address(asset), brand, address(0), creator, l);
         l.observationCardinality = CARDINALITY;
 
         vm.prank(launchpad);
         vm.expectRevert(AssetMarketFactory.AssetHasNoCode.selector);
-        factory.createLaunchMarket(address(0xDEAD), address(0), creator, l);
+        factory.createLaunchMarket(address(0xDEAD), brand, address(0), creator, l);
 
         vm.prank(launchpad);
         vm.expectRevert(AssetMarketFactory.ZeroAddress.selector);
-        factory.createLaunchMarket(address(0), address(0), creator, l);
+        factory.createLaunchMarket(address(0), brand, address(0), creator, l);
 
-        // A market with nobody to hand the unit's metadata to is refused the same way.
+        // A market with nobody to attribute the launch to is refused the same way.
         vm.prank(launchpad);
         vm.expectRevert(AssetMarketFactory.ZeroAddress.selector);
-        factory.createLaunchMarket(address(asset), address(0), address(0), l);
+        factory.createLaunchMarket(address(asset), brand, address(0), address(0), l);
 
         vm.prank(launchpad);
         vm.expectRevert(
             abi.encodeWithSelector(AssetMarketFactory.ReserveNotApproved.selector, address(0xBAD))
         );
-        factory.createLaunchMarket(address(asset), address(0xBAD), creator, l);
+        factory.createLaunchMarket(address(asset), brand, address(0xBAD), creator, l);
+
+        // And the quote brand has to be one this factory registered: a brand it does not know
+        // has no `reserveOfBrand`, and the market record would name the wrong reserve.
+        (address strayBrand,) = reservePool.registerBrand("Stray", "stray", address(this));
+        vm.prank(launchpad);
+        vm.expectRevert(
+            abi.encodeWithSelector(AssetMarketFactory.BrandNotRegistered.selector, strayBrand)
+        );
+        factory.createLaunchMarket(address(asset), strayBrand, address(0), creator, l);
     }
 
-    /// @notice The market is an ordinary one, and it is the creator's, not the module's.
-    function test_createLaunchMarket_opensAnOrdinaryMarketAttributedToTheCreator() public {
+    /// @notice The market is an ordinary one, it is the creator's, and the dollar it is quoted
+    ///         in is nobody's but its issuer's: no unit is minted, the brand's treasury and
+    ///         fee-vault records are untouched, and the market reads as a shared quote.
+    function test_createLaunchMarket_opensAnOrdinaryMarketQuotedInTheLaunchsBrand() public {
         _setLaunchpad(factory, launchpad);
+        address brand = _quoteBrand("qUSD", address(0));
+        uint256 brandsBefore = reservePool.allBrandTokensLength();
+        address brandTreasury = factory.treasuryOfBrand(brand);
 
         // A launched token has its own bytecode, never the reference equity's.
-        (uint256 id, address unit, address feeVault, address lpDistributor, bytes32 poolId) =
-            _launch(address(impersonator), creator);
+        (uint256 id, address feeVault, address lpDistributor, bytes32 poolId) =
+            _launch(address(impersonator), brand, creator);
 
         AssetMarketFactory.Market memory m = factory.market(id);
         assertEq(m.creator, creator, "the launch's creator, not the launchpad");
-        assertEq(PooledBrandToken(unit).metadataAdmin(), creator, "the unit is theirs to describe");
-        assertEq(PoolBrandTreasury(m.treasury).admin(), feeVault, "but the float is the market's");
+        assertEq(m.brandToken, brand, "quoted in the launch's own dollar");
         assertFalse(m.verified);
         assertEq(m.asset, address(impersonator));
         assertEq(m.reservePool, address(reservePool), "zero means the default reserve");
         assertEq(m.fee, 5_000, "the listing's tier");
         assertEq(m.tickSpacing, factory.tickSpacingForFee(5_000));
-        assertEq(PooledBrandToken(unit).name(), "MOCK Market Dollar");
-        assertEq(PooledBrandToken(unit).symbol(), "MOCK.d");
+
+        // Graduating mints no stablecoin, and takes nothing from the one it quotes.
+        assertEq(reservePool.allBrandTokensLength(), brandsBefore, "no new brand");
+        assertTrue(factory.isSharedQuote(id), "a shared quote, not the market's own unit");
+        assertEq(factory.marketOfBrand(brand), 0, "the brand still belongs to no market");
+        assertEq(factory.feeVaultOfBrand(brand), address(0), "and has no single vault");
+        assertEq(m.treasury, brandTreasury, "the brand's existing treasury");
+        assertEq(
+            PoolBrandTreasury(brandTreasury).admin(),
+            address(this),
+            "which stays with the issuer who registered it"
+        );
+        assertEq(
+            PooledBrandToken(brand).metadataAdmin(),
+            address(this),
+            "as does the right to describe it"
+        );
 
         (uint160 sqrtPriceX96,,,) = IPoolManager(address(manager)).getSlot0(PoolId.wrap(poolId));
         assertEq(
             sqrtPriceX96,
-            factory.quoteSqrtPriceX96(unit, address(impersonator), PRICE),
+            factory.quoteSqrtPriceX96(brand, address(impersonator), PRICE),
             "priced from the listing"
         );
         assertEq(feeHook.feeRecipientOf(PoolId.wrap(poolId)), protocolTreasury, "hook registered");
         assertEq(_cardinalityNext(poolId), FIXTURE_MIN_OBSERVATION_CARDINALITY);
 
         assertEq(factory.marketFor(address(reservePool), address(impersonator)), id);
-        assertEq(factory.marketOfBrand(unit), id);
         assertEq(factory.marketOfPool(poolId), id);
-        assertEq(factory.feeVaultOfBrand(unit), feeVault);
         assertEq(address(BrandFeeVault(feeVault).distributor()), lpDistributor);
-        assertEq(address(LpRewardDistributor(lpDistributor).rewardToken()), unit);
+        assertEq(address(LpRewardDistributor(lpDistributor).rewardToken()), brand);
     }
 
     /// @notice The listing travelled with the call and is gone with it: the owner's asset list
     ///         never learns about a launched asset, so `createMarket` still refuses it.
     function test_createLaunchMarket_leavesTheAssetListAlone() public {
         _setLaunchpad(factory, launchpad);
-        _launch(address(impersonator), creator);
+        _launch(address(impersonator), _quoteBrand("qUSD", address(0)), creator);
 
         assertEq(factory.listedAssetsLength(), 0);
         assertFalse(factory.assetListing(address(impersonator)).approved);
@@ -1135,7 +1167,8 @@ contract AssetMarketFactoryTest is Test, StackFixture {
         public
     {
         _setLaunchpad(factory, launchpad);
-        (uint256 id,,,,) = _launch(address(impersonator), creator);
+        address brand = _quoteBrand("qUSD", address(0));
+        (uint256 id,,,) = _launch(address(impersonator), brand, creator);
         AssetMarketFactory.AssetListing memory l = _launchListing(address(impersonator), PRICE);
 
         vm.prank(launchpad);
@@ -1147,11 +1180,14 @@ contract AssetMarketFactoryTest is Test, StackFixture {
                 id
             )
         );
-        factory.createLaunchMarket(address(impersonator), address(0), alice, l);
+        factory.createLaunchMarket(address(impersonator), brand, address(0), alice, l);
 
+        // A different reserve is a different market, and needs a quote brand pooled there.
+        address otherBrand = _quoteBrand("qUSD2", address(secondReserve));
         vm.prank(launchpad);
-        (uint256 second,,,,) =
-            factory.createLaunchMarket(address(impersonator), address(secondReserve), alice, l);
+        (uint256 second,,,) = factory.createLaunchMarket(
+            address(impersonator), otherBrand, address(secondReserve), alice, l
+        );
         assertEq(factory.market(second).reservePool, address(secondReserve));
         assertEq(factory.marketFor(address(secondReserve), address(impersonator)), second);
         assertEq(factory.marketsOfAssetLength(address(impersonator)), 2);

@@ -17,6 +17,7 @@ import {Hooks} from "v4-core/libraries/Hooks.sol";
 import {SafeCast} from "v4-core/libraries/SafeCast.sol";
 import {FullMath} from "v4-core/libraries/FullMath.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
+import {LPFeeLibrary} from "v4-core/libraries/LPFeeLibrary.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {Currency, CurrencyLibrary} from "v4-core/types/Currency.sol";
@@ -115,8 +116,7 @@ contract ProtocolFeeHook is
     // ─── Limits ──────────────────────────────────────────────────────────
 
     /// @notice Fee denominator, in hundredths of a basis point. 1_000_000 == 100%.
-    ///         Matches Uniswap's own fee units so a `feePips` reads the same way `key.fee`
-    ///         does — 3_000 is 0.30% in both.
+    ///         Matches Uniswap's static LP fee units — 3_000 is 0.30% in both.
     uint24 public constant PIPS_DENOMINATOR = 1_000_000;
 
     /// @notice Hard ceiling on what any pool's protocol fee may be set to, ever. 1%.
@@ -151,6 +151,12 @@ contract ProtocolFeeHook is
     /// @dev    A constant, not a parameter. A settable delay is a delay the owner can set to
     ///         zero the transaction before raising the fee, which is no delay at all.
     uint64 public constant FEE_INCREASE_DELAY = 1 hours;
+    /// @notice The stored LP fee assigned to a newly registered dynamic pool. 0.50%.
+    uint24 public constant DEFAULT_DYNAMIC_LP_FEE = 5_000;
+
+    /// @notice Bounds for keeper-managed dynamic LP fees: 0.01% through 5%, inclusive.
+    uint24 public constant MIN_DYNAMIC_LP_FEE = 100;
+    uint24 public constant MAX_DYNAMIC_LP_FEE = 50_000;
 
     // ─── Wiring ──────────────────────────────────────────────────────────
 
@@ -221,6 +227,14 @@ contract ProtocolFeeHook is
     ///         separate slot keeps the layout obvious to the next upgrade.
     mapping(PoolId => uint64) public feePipsEffectiveAt;
 
+    /// @notice Off-chain policy executor allowed to update registered dynamic pools' stored LP
+    ///         fee. Zero revokes that permission.
+    ///
+    /// @dev    Appended below every field above, which is the only safe place for new state in
+    ///         a contract that is upgraded in place. Nothing inherits from `ProtocolFeeHook`,
+    ///         so no child's layout sits below this slot. Any future field goes BELOW it.
+    address public feeKeeper;
+
     event PoolRegistered(PoolId indexed poolId, address indexed recipient, uint24 feePips);
     event ObservationCardinalityNextIncreased(
         PoolId indexed poolId, uint16 cardinalityNextOld, uint16 cardinalityNextNew
@@ -234,6 +248,8 @@ contract ProtocolFeeHook is
     event PoolFeeRecipientUpdated(
         PoolId indexed poolId, address indexed previous, address indexed current
     );
+    event FeeKeeperUpdated(address keeper);
+    event PoolLpFeeUpdated(PoolId indexed poolId, uint24 feePips);
     event RegistrarUpdated(address indexed registrar);
     event FeeAccrued(PoolId indexed poolId, Currency indexed currency, uint256 amount);
     event FeeCollected(
@@ -251,6 +267,9 @@ contract ProtocolFeeHook is
     error HookMismatch();
     error ZeroWindow();
     error OwnershipCannotBeRenounced();
+    error OnlyFeeSetter();
+    error NotDynamicPool();
+    error InvalidLpFee();
 
     modifier onlyPoolManager() {
         if (msg.sender != address(poolManager)) revert OnlyPoolManager();
@@ -343,6 +362,32 @@ contract ProtocolFeeHook is
         emit RegistrarUpdated(_registrar);
     }
 
+    /// @notice Authorize an off-chain executor to update dynamic LP fees, or revoke with zero.
+    function setFeeKeeper(address keeper) external onlyOwner {
+        feeKeeper = keeper;
+        emit FeeKeeperUpdated(keeper);
+    }
+
+    /// @notice Store one symmetric LP fee in Uniswap v4 for a registered dynamic pool.
+    /// @dev The owner retains direct control; a nonzero `feeKeeper` may only call this function.
+    function setPoolLpFee(PoolKey calldata key, uint24 feePips) external {
+        address caller = msg.sender;
+        if (caller != owner() && (feeKeeper == address(0) || caller != feeKeeper)) {
+            revert OnlyFeeSetter();
+        }
+        if (address(key.hooks) != address(this)) revert HookMismatch();
+        if (key.fee != LPFeeLibrary.DYNAMIC_FEE_FLAG) revert NotDynamicPool();
+
+        PoolId id = key.toId();
+        if (feeRecipientOf[id] == address(0)) revert NotRegistered();
+        if (feePips < MIN_DYNAMIC_LP_FEE || feePips > MAX_DYNAMIC_LP_FEE) {
+            revert InvalidLpFee();
+        }
+
+        poolManager.updateDynamicLPFee(key, feePips);
+        emit PoolLpFeeUpdated(id, feePips);
+    }
+
     /// @notice Point a pool's skimmed fees at a destination, and fix that pool's rate.
     ///
     ///         One-shot: a pool may only be registered once. The DESTINATION is no longer
@@ -375,6 +420,10 @@ contract ProtocolFeeHook is
         observationStates[id] = ObservationState({
             index: 0, cardinality: cardinality, cardinalityNext: cardinalityNext
         });
+
+        if (key.fee == LPFeeLibrary.DYNAMIC_FEE_FLAG) {
+            poolManager.updateDynamicLPFee(key, DEFAULT_DYNAMIC_LP_FEE);
+        }
 
         emit PoolRegistered(id, recipient, feePips);
     }

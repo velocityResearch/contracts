@@ -41,13 +41,25 @@ yield in the reserve and that yield pays the pool's liquidity providers. The poo
 quote token, the LPs get the float, and the reserve keeps the redemption promise. The cost to an
 integrator is the extra leg described above.
 
-**Three of the six markets share one brand.** The tokenized equities - NVDA (13), SPCX (14) and AI
-(15) - all quote against the same `AIUSD`, so they are fungible on their dollar side: brand received
-from selling NVDA can buy SPCX with no reserve round trip. Each launchpad graduate mints its own
-brand instead (`SDOGE.d`, `ABR.d`, `CORGIGG.d`), so markets 16, 17 and 18 are not fungible with each
-other or with the equity block. The factory exposes this directly as
-`AssetMarketFactory.isSharedQuote(marketId)`, which reads `true` for 13, 14 and 15 and `false` for
-16, 17 and 18 (read at head).
+**Three of the six markets share one brand, and that share is about to grow.** The tokenized
+equities - NVDA (13), SPCX (14) and AI (15) - all quote against the same `AIUSD`, so they are
+fungible on their dollar side: brand received from selling NVDA can buy SPCX with no reserve round
+trip. The three launchpad graduates - SDOGE (16), ABR (17) and CORGIGG (18) - each minted their own
+brand at graduation (`SDOGE.d`, `ABR.d`, `CORGIGG.d`), so they are fungible with neither each other
+nor the equity block.
+
+**That split is history, not the rule.** A pending change stops graduation from minting a unit: a
+launch keeps the dollar it raised in, so a graduated pool is `ASSET / AIUSD` (or `/ FASTUSD`, or
+whichever brand the launch quoted), no brand is registered on the reserve, and the new market is a
+shared quote from its first block. The six markets already deployed are **not** migrated - 16, 17
+and 18 keep their `.d` units - so the set of `.d` dollars is closed at three. Every graduate after
+the change joins an existing brand instead. This is contract work, not yet deployed; §8 covers what
+fires when it lands.
+
+The factory exposes the distinction directly as `AssetMarketFactory.isSharedQuote(marketId)`, which
+reads `true` for 13, 14 and 15 and `false` for 16, 17 and 18 (read at head). Read it per market and
+do not infer it from how the market was created: once the change is live, a launchpad graduate reads
+`true` like the equities do.
 
 Two brands in the **same** reserve are freely interchangeable at 1:1 through
 `SharedReservePool.swap(tokenIn, tokenOut, amount, receiver)`, no fee. Two brands in **different**
@@ -55,8 +67,14 @@ reserves are not interchangeable at all. See [section 4](#4-reserves).
 
 ## 2. The six live pools
 
-All six share `fee` = 5000 (0.50% LP tier), `tickSpacing` = 50, and `hooks` =
-`0xc9932584c5154e4F58313a2e5423522E74e540Cc` (`ProtocolFeeHook`).
+All six share `fee` = 5000 (0.50% LP tier) and `hooks` =
+`0xc9932584c5154e4F58313a2e5423522E74e540Cc` (`ProtocolFeeHook`). All six also currently sit at
+`tickSpacing` = 50 - but that is a measurement of these six pools, **not a venue rule, and not
+derivable from the fee tier**. Tick spacing is per market and MUST be read from
+`AssetMarketFactory.poolKeyOf(marketId)` or `market(id).tickSpacing`. A market opened by a
+launchpad graduation can sit at a spacing *above* its tier's canonical one; see
+[section 8](#8-new-markets-appear-without-warning). Do not carry a v3-style fee -> spacing
+table for this venue.
 
 | id | Asset | `currency0` | `currency1` | `poolId` |
 |---|---|---|---|---|
@@ -314,9 +332,9 @@ The details are in [Quoting and settlement](./QUOTING_AND_SETTLEMENT.md), which 
 |---|---|---|---|
 | USDG | `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` | 6 | The chain's dollar and the reserve asset. **In no pool.** |
 | AIUSD | `0xE7BB388959d89f809BE24da16A1DaBa0dC58E596` | 6 | Brand dollar, shared quote token of markets 13, 14 and 15 |
-| SDOGE.d | `0xA138D500c4f96B6Fa319719bA325e6DE62C567b4` | 6 | Brand dollar, market 16 only |
-| ABR.d | `0x1Aa1526302625de02791538DB45c45E96bb75A70` | 6 | Brand dollar, market 17 only. `currency0` of that pool |
-| CORGIGG.d | `0xe0588f17797e79B51a42CBE4bEbab0C1241F98a4` | 6 | Brand dollar, market 18 only |
+| SDOGE.d | `0xA138D500c4f96B6Fa319719bA325e6DE62C567b4` | 6 | Brand dollar, market 16 only. Legacy: minted by that graduation |
+| ABR.d | `0x1Aa1526302625de02791538DB45c45E96bb75A70` | 6 | Brand dollar, market 17 only. Legacy. `currency0` of that pool |
+| CORGIGG.d | `0xe0588f17797e79B51a42CBE4bEbab0C1241F98a4` | 6 | Brand dollar, market 18 only. Legacy: minted by that graduation |
 | NVDA | `0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC` | 18 | Asset, tokenized equity, market 13 |
 | SPCX | `0x4a0E65A3EcceC6dBe60AE065F2e7bb85Fae35eEa` | 18 | Asset, tokenized equity, market 14 |
 | AI | `0x2E8c31162b855A2ffa90F6F8634643Ad6F111e18` | 18 | Asset, tokenized equity, market 15 |
@@ -326,6 +344,10 @@ The details are in [Quoting and settlement](./QUOTING_AND_SETTLEMENT.md), which 
 
 Every brand dollar on this venue is 6 decimals. Every asset is 18 decimals. There is no mixed case
 to handle within a category.
+
+The three `.d` dollars are marked legacy because graduation no longer mints one: they are the three
+markets that graduated under the old shape, and the set is closed at three. A future graduate adds
+an asset row to this table and no brand row at all. See [section 1](#1-market-model).
 
 ### WARNING: AIUSD is a brand dollar. It is not USDG.
 
@@ -364,10 +386,36 @@ Two creation paths exist:
 Path 2 is how markets 16, 17 and 18 came to exist, and it is how the next one will. There is no
 announcement, no delay and no approval transaction to index ahead of it.
 
+**Path 2 stops producing new brands.** Those three graduations each registered a fresh `.d` dollar
+on the reserve, so a new market meant a new token to list. Under the pending change described in
+[section 1](#1-market-model) a graduation registers nothing: the pool is quoted in the brand the
+launch already raised in, which is a token you are already indexing if you index the market that
+uses it. After that change the only genuinely new token a graduation brings is the **asset**.
+
+**A graduation under attack opens off-canonical, and the canonical key may then hold a hostile
+pool.** A graduated market's whole `PoolKey` is public from the moment the launch is, and
+`PoolManager.initialize` on it needs neither liquidity nor permission, so anyone can occupy the
+key a graduation was going to use. The factory no longer refuses in that case: it tries the
+tier's canonical spacing and then the next 31 values above it — 32 rungs in total — opens the
+market on the first free one, and emits
+`LaunchPoolSpacingShifted(asset, brandToken, fee, canonicalTickSpacing, tickSpacing)`.
+Two consequences:
+
+- **`Market.tickSpacing` may exceed the tier's canonical spacing.** Reconstructing a `PoolKey`
+  from a fee -> spacing table will miss the market entirely. Read `poolKeyOf(marketId)`.
+- **The squatted key is left in place**, initialised at a price its occupant chose and seedable
+  by them at any time. A pool at the canonical key for a graduated asset is therefore not
+  necessarily the protocol's market. `poolKeyOf(marketId)` is the only authority on which pool
+  id belongs to market `id`, and nothing in this document covers a pool that is not named by it.
+- **`MarketCreated` carries `fee` and `poolId`, but not `tickSpacing`.** `poolId` identifies the
+  pool; it does not rebuild the key `PoolManager.swap` needs. Follow every `MarketCreated` with
+  a `poolKeyOf(marketId)` read rather than assembling the key from the event's fields.
+
 **Watch `AssetMarketFactory.MarketCreated`.** It is emitted on both paths, carries `marketId`,
 `asset`, `brandToken`, `poolId` and `fee`, and is the only signal that fires before the pool has its
 first trade. Pair it with `MarketReserve` from the same transaction to learn which reserve backs the
-new brand, then run the new id through [section 6](#6-discovery) and
+market's quote brand - which, for a shared quote, is a brand you may already have - then run the new
+id through [section 6](#6-discovery) and
 [section 5](#5-depth-today-measured) before routing anything through it: a freshly graduated pool
 is seeded with whatever the curve swept, which can be smaller than any pool listed here.
 

@@ -14,6 +14,7 @@ import {PoolBrandTreasury} from "../pool/PoolBrandTreasury.sol";
 import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
+import {LPFeeLibrary} from "v4-core/libraries/LPFeeLibrary.sol";
 import {PoolKey} from "v4-core/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {Currency} from "v4-core/types/Currency.sol";
@@ -123,6 +124,27 @@ contract AssetMarketFactory is
     /// @notice Floor on how long one LP reward period may run for. A period shorter than this
     ///         pays out fast enough that "liquidity × time" stops being a meaningful weight.
     uint32 public constant MIN_REWARDS_DURATION = 1 hours;
+
+    /// @notice How many tick spacings a launch market will try before giving up: the fee
+    ///         tier's canonical spacing, then `+1` through `+31`.
+    ///
+    ///         **This is a squat budget, and it is meant to be read as one.** A graduated
+    ///         market is quoted in a dollar that already exists, so its whole `PoolKey` is
+    ///         public from the moment the launch is, and `PoolManager.initialize` on it needs
+    ///         no liquidity and no permission. Pinning one spacing per tier left exactly five
+    ///         keys per launch token and therefore a five-transaction denial of service over
+    ///         the entire raise. `tickSpacing` is an independent field of pool identity in v4,
+    ///         so a ladder multiplies that cost by its depth: 32 rungs across five tiers is
+    ///         160 initialisations an attacker must land, and keep landed, before the curve
+    ///         crosses — with `LaunchFactory.setSweptLaunchPoolFee` and the 7-day rescue still
+    ///         behind it. It does not make the squat impossible; nothing on a public chain
+    ///         can, since every rung is as predictable as the first. It makes it expensive
+    ///         and, unlike the previous behaviour, survivable.
+    ///
+    ///         The walk costs one cold `getSlot0` per rung and stops at the first free one,
+    ///         so an unattacked graduation pays for exactly one — the depth is only spent by
+    ///         a launch that is actually under attack.
+    uint256 private constant LAUNCH_SPACING_RUNGS = 32;
 
     /// @dev Uniswap V3's price bounds. A starting price outside them cannot be initialised.
     uint160 private constant MIN_SQRT_RATIO = 4295128739;
@@ -267,7 +289,7 @@ contract AssetMarketFactory is
     struct AssetListing {
         /// @notice False blocks new markets for this asset. Existing ones keep trading.
         bool approved;
-        /// @notice Uniswap fee tier. Determines tick spacing through `tickSpacingForFee`.
+        /// @notice Static LP fee tier, or 0x800000 for per-swap dynamic LP fees at spacing 50.
         uint24 fee;
         /// @notice Starting price of ONE WHOLE asset unit, in WHOLE unit-token units, scaled
         ///         by 1e18. An equity at $154 is `154e18`.
@@ -390,8 +412,27 @@ contract AssetMarketFactory is
     ///         this field existed wakes up in. Appended before `__gap` so no earlier slot moves.
     address public launchpad;
 
+    /// @notice The float a graduation measured for a market, as it was reported by the
+    ///         launchpad. Zero means no graduation has ever reported one.
+    ///
+    ///         Recorded so the registration can be retried. The float leg of a graduation is
+    ///         best-effort — `PoolBrandTreasury.registerFloat` depends on a brand issuer's
+    ///         standing consent and on a reserve that can be paused, and neither may be
+    ///         allowed to veto a market's creation — so `recordLaunchFloat` writes the figure
+    ///         here before it tries the treasury, and `retryLaunchFloat` re-attempts with
+    ///         exactly this number. Pinning it is what keeps the retry from being a way to
+    ///         register an arbitrary float: the only figure anybody can ever land for a market
+    ///         is the one its graduation measured.
+    ///
+    ///         It is also the once-only record `recordLaunchFloat` enforces against. A
+    ///         treasury-side `floatOf` is not, because `retireMarket` zeroes it.
+    ///
+    ///         Appended below `launchpad` and before `__gap`, which shrinks by one, so no
+    ///         earlier slot moves.
+    mapping(uint256 marketId => uint256 amount) public launchFloatOf;
+
     /// @dev Room for later versions to add state.
-    uint256[39] private __gap;
+    uint256[38] private __gap;
 
     // ─── Events ──────────────────────────────────────────────────────────
 
@@ -428,6 +469,21 @@ contract AssetMarketFactory is
     event LogoTemplateUpdated(string baseURI, string suffix);
     event BrandLogoDerived(address indexed brandToken, string logo);
     event LaunchpadUpdated(address launchpad);
+    /// @notice A graduation's measured float was recorded. `landed` is false when the
+    ///         treasury refused it, which leaves the figure retryable.
+    event LaunchFloatRecorded(uint256 indexed marketId, uint256 amount, bool landed);
+    /// @notice A launch market opened on a tick spacing other than its fee tier's canonical
+    ///         one, because the canonical key was already initialised by somebody else.
+    ///         Operationally this is the squat alarm: a market that trades off-spacing is
+    ///         correct but unusual, and whoever watches the venue should know which rung it
+    ///         took and that the launch was attacked.
+    event LaunchPoolSpacingShifted(
+        address indexed asset,
+        address indexed brandToken,
+        uint24 fee,
+        int24 canonicalTickSpacing,
+        int24 tickSpacing
+    );
 
     // ─── Errors ──────────────────────────────────────────────────────────
 
@@ -460,6 +516,23 @@ contract AssetMarketFactory is
     error BrandNotRegistered(address brand);
     /// @notice Only a dollar's operator may hand it to a market as that market's currency.
     error NotBrandOperator(address brand);
+    /// @notice A market that owns its quote brand takes the whole of that brand's yield
+    ///         through its treasury. Registering float for it on top would be double-counting.
+    error NotSharedQuote(uint256 marketId);
+    /// @notice A float larger than the brand's entire outstanding supply is not a measurement
+    ///         of anything. It is also destructive: see `recordLaunchFloat`.
+    error FloatExceedsSupply(uint256 amount, uint256 outstanding);
+    /// @notice A market's seed is measured once, by its graduation.
+    error FloatAlreadyRecorded(uint256 marketId);
+    /// @notice Nothing was ever measured for this market, so there is nothing to retry.
+    error NoLaunchFloatRecorded(uint256 marketId);
+    /// @notice A retired market has been dropped from the brand's float on purpose.
+    error MarketIsRetired(uint256 marketId);
+    /// @notice The treasury already holds this market's float; the retry has nothing to do.
+    error LaunchFloatAlreadyRegistered(uint256 marketId);
+    /// @notice Every rung of the launch tick-spacing ladder for this pair and tier is already
+    ///         initialised. See `nextFreeTickSpacing`.
+    error LaunchPoolLadderExhausted(address asset, address brandToken, uint24 fee);
 
     // ─── Construction ────────────────────────────────────────────────────
 
@@ -547,6 +620,11 @@ contract AssetMarketFactory is
     ///         created under. Call again to change them; later creations only.
     function approveAsset(address asset, AssetListing calldata listing) external onlyOwner {
         _validateListing(asset, listing);
+        // Only here. This listing is the one that will mint a unit, and a nameless stablecoin
+        // is not something an owner should be able to approve by omission.
+        if (bytes(listing.unitName).length == 0 || bytes(listing.unitSymbol).length == 0) {
+            revert EmptyUnitMetadata();
+        }
 
         AssetListing memory l = listing;
         l.approved = true;
@@ -564,12 +642,14 @@ contract AssetMarketFactory is
     ///      `approveAsset`, and the launchpad's `createLaunchMarket`. Reverts `UnsupportedFeeTier`
     ///      on a tier with no spacing, and `ZeroAmount` on a price of zero — at the listing,
     ///      where whoever supplied the terms can fix them, rather than at creation time.
+    ///
+    ///      The unit's name and symbol are NOT checked here. They describe a unit this
+    ///      listing would mint, and a launchpad graduate mints none: it is quoted in the
+    ///      dollar its curve was quoted in. `approveAsset` checks them separately, on the one
+    ///      path where an empty pair really would produce a nameless stablecoin.
     function _validateListing(address asset, AssetListing calldata listing) private view {
         if (asset == address(0)) revert ZeroAddress();
         if (asset.code.length == 0) revert AssetHasNoCode();
-        if (bytes(listing.unitName).length == 0 || bytes(listing.unitSymbol).length == 0) {
-            revert EmptyUnitMetadata();
-        }
         if (listing.observationCardinality > MAX_OBSERVATION_CARDINALITY) {
             revert CardinalityTooHigh();
         }
@@ -737,8 +817,9 @@ contract AssetMarketFactory is
             true
         );
 
-        (marketId, feeVault, lpDistributor, poolId) =
-            _openMarket(brandToken, msg.sender, asset, l, false);
+        (marketId, feeVault, lpDistributor, poolId) = _openMarket(
+            brandToken, msg.sender, asset, l, false, _canonicalTickSpacing(brandToken, asset, l.fee)
+        );
     }
 
     /// @notice Open the market for an approved asset **quoted in a dollar that already exists**:
@@ -795,7 +876,9 @@ contract AssetMarketFactory is
         uint256 existing = marketOfAsset[reserve][asset];
         if (existing != 0) revert AssetAlreadyHasMarket(reserve, asset, existing);
 
-        (marketId, feeVault, lpDistributor, poolId) = _openMarket(brand, msg.sender, asset, l, true);
+        (marketId, feeVault, lpDistributor, poolId) = _openMarket(
+            brand, msg.sender, asset, l, true, _canonicalTickSpacing(brand, asset, l.fee)
+        );
     }
 
     /// @notice Whether this market is quoted in a dollar it does not own: a brand that existed
@@ -818,49 +901,188 @@ contract AssetMarketFactory is
     ///         only `launchpad` may make the call. The asset never enters the asset list:
     ///         `assetListing(asset)` stays unapproved and `createMarket` still refuses it.
     ///
-    ///         `creator` is recorded as the market's creator and receives the unit's metadata
-    ///         authority, the way `msg.sender` does in `createMarket`: the launchpad is a
-    ///         module, not a person, and the person is the launch's deployer.
+    ///         **The market is quoted in the dollar the launch was quoted in, and mints
+    ///         nothing.** This used to register a fresh `<SYM>.d` brand per graduation and
+    ///         convert the raise into it, which put a dollar nobody asked for into the
+    ///         reserve's registry for every launch, and left buyers trading against a unit
+    ///         that existed in one pool. A graduate is now an ordinary shared-quote market,
+    ///         the same shape `createMarketForBrand` opens, so it carries the same
+    ///         `shared = true` consequences: no `marketOfBrand`, no `feeVaultOfBrand`, and no
+    ///         claim on the brand's treasury. What replaces that claim is the float share —
+    ///         `recordLaunchFloat`, below.
     ///
-    ///         Reverts `OnlyLaunchpad`, `AssetAlreadyHasMarket` and `ReserveNotApproved` as
+    ///         `creator` is recorded as the market's creator, the way `msg.sender` is in
+    ///         `createMarket`: the launchpad is a module, not a person, and the person is the
+    ///         launch's deployer. It receives no metadata authority here, because the dollar
+    ///         is not theirs and its issuer keeps it.
+    ///
+    ///         **This is the one path that routes around an occupied pool key** rather than
+    ///         refusing it, because a graduation's key is public long before the raise it
+    ///         carries is seedable and a squatter would otherwise hold the whole raise. The
+    ///         market opens on the first free rung of `nextFreeTickSpacing`'s ladder and
+    ///         `LaunchPoolSpacingShifted` says so.
+    ///
+    ///         Reverts `OnlyLaunchpad`, `AssetAlreadyHasMarket`, `BrandNotRegistered`,
+    ///         `ReserveNotApproved`, `AssetIsBrandToken` and `LaunchPoolLadderExhausted` as
     ///         named, and whatever `approveAsset` would have on the listing.
     function createLaunchMarket(
         address asset,
+        address brand,
         address reserve,
         address creator,
         AssetListing calldata listing
-    )
-        external
-        returns (
-            uint256 marketId,
-            address brandToken,
-            address feeVault,
-            address lpDistributor,
-            bytes32 poolId
-        )
-    {
+    ) external returns (uint256 marketId, address feeVault, address lpDistributor, bytes32 poolId) {
         if (msg.sender != launchpad) revert OnlyLaunchpad();
+        if (creator == address(0)) revert ZeroAddress();
         _validateListing(asset, listing);
 
         SharedReservePool resolved = _resolveReserve(reserve);
+
+        // Registered through THIS factory, exactly as `createMarketForBrand` requires. A brand
+        // registered straight on the reserve has no `reserveOfBrand`, and `_record` would then
+        // stamp the factory's default reserve into the market — see `reserveOf`.
+        address brandReserve = reserveOfBrand[brand];
+        if (brandReserve == address(0)) revert BrandNotRegistered(brand);
+        if (brandReserve != address(resolved)) revert ReserveNotApproved(brandReserve);
 
         uint256 existing = marketOfAsset[address(resolved)][asset];
         if (existing != 0) {
             revert AssetAlreadyHasMarket(address(resolved), asset, existing);
         }
 
-        // `_registerBrand` refuses a zero operator, which is the `creator != 0` check.
-        (brandToken,) = _registerBrand(
-            listing.unitName,
-            listing.unitSymbol,
-            creator,
-            PooledBrandToken.Metadata({description: "", logo: "", socials: ""}),
-            resolved,
-            true
+        (marketId, feeVault, lpDistributor, poolId) = _openMarket(
+            brand, creator, asset, listing, true, _resolveLaunchSpacing(brand, asset, listing.fee)
         );
+    }
 
-        (marketId, feeVault, lpDistributor, poolId) =
-            _openMarket(brandToken, creator, asset, listing, false);
+    /// @dev The spacing an OWNER listing opens on: the tier's own, and nothing else. An
+    ///      occupied canonical key is a listing error the owner fixes by re-approving at
+    ///      another tier, not something to route around behind their back — see `_ensurePool`.
+    function _canonicalTickSpacing(address brandToken, address asset, uint24 fee)
+        private
+        view
+        returns (int24 canonical)
+    {
+        int24 free;
+        (free, canonical) = _walkSpacings(brandToken, asset, fee);
+        if (free != canonical) revert PoolAlreadyInitialised(asset, brandToken);
+    }
+
+    /// @dev The spacing a GRADUATION opens on: the first free rung of the ladder, and the
+    ///      alarm that says it was not the canonical one. Split out of `createLaunchMarket`
+    ///      so the ladder policy reads in one place and `_openMarket` stays a function about
+    ///      opening a market.
+    function _resolveLaunchSpacing(address brand, address asset, uint24 fee)
+        private
+        returns (int24 tickSpacing)
+    {
+        int24 canonical;
+        (tickSpacing, canonical) = _walkSpacings(brand, asset, fee);
+        if (tickSpacing == 0) revert LaunchPoolLadderExhausted(asset, brand, fee);
+        if (tickSpacing != canonical) {
+            emit LaunchPoolSpacingShifted(asset, brand, fee, canonical, tickSpacing);
+        }
+    }
+
+    /// @notice Record how much of its quote brand a graduated market locked into its pool, so
+    ///         that brand's treasury pays the market's liquidity providers a proportional
+    ///         share of the float yield.
+    ///
+    ///         **This is what a graduate gets instead of owning a dollar.** A market that
+    ///         mints its own unit becomes that treasury's admin and takes the whole of the
+    ///         brand's yield. A graduate quotes a dollar it does not own, so it takes only the
+    ///         share its own pool's float earns — and only if the issuer opted in by naming
+    ///         this factory through `PoolBrandTreasury.setFactory`.
+    ///
+    ///         **The registration is best-effort, and the figure outlives it.** The issuer's
+    ///         opt-in is revocable and the treasury's pull runs through a reserve that can be
+    ///         paused, so `registerFloat` can fail for reasons that have nothing to do with
+    ///         the graduation. Letting that revert would give a party outside this protocol a
+    ///         veto over a market's creation, so the treasury call is wrapped and the outcome
+    ///         is returned: `false` means the amount is recorded in `launchFloatOf` and
+    ///         `retryLaunchFloat` can land it later. The measured figure is written BEFORE the
+    ///         attempt precisely so a refusal cannot roll it away.
+    ///
+    ///         The figure is recorded once and never re-measured: a pool's live brand balance
+    ///         is not readable, because Uniswap v4 holds every pool's tokens in one singleton.
+    ///         It is the seed, which is the float the launch itself contributed.
+    ///
+    ///         **What is checked, and why the caller is not enough.** `launchpad` is an
+    ///         owner-set role on a proxy, so "whatever contract holds it" is the whole of the
+    ///         trust behind an amount that spends a third-party issuer's yield. These three
+    ///         bounds reduce that to what a real graduation could have done:
+    ///
+    ///         - a market that owns its brand (`marketOfBrand`) draws the whole of that
+    ///           brand's yield through its treasury already, so float on top double-counts;
+    ///         - a float above the brand's entire outstanding supply is not a measurement of
+    ///           anything, and it is destructive rather than merely unfair: once `totalFloat`
+    ///           is large enough that the treasury's `mulDiv(toMarkets, WAD, totalFloat)`
+    ///           index credit floors to zero while `marketReserve` still grows, that
+    ///           underlying is unreachable by the issuer and by every vault, permanently;
+    ///         - a market's seed is measured once, by its graduation.
+    ///
+    ///         The once-only guard reads `launchFloatOf` rather than the treasury's `floatOf`
+    ///         because `retireMarket` zeroes the latter: keying on it would let a market be
+    ///         re-registered after it was deliberately dropped.
+    function recordLaunchFloat(uint256 marketId, uint256 amount) external returns (bool landed) {
+        if (msg.sender != launchpad) revert OnlyLaunchpad();
+
+        Market memory m = market(marketId);
+        if (marketOfBrand[m.brandToken] == marketId) revert NotSharedQuote(marketId);
+
+        uint256 outstanding = SharedReservePool(m.reservePool).outstandingOf(m.brandToken);
+        if (amount > outstanding) revert FloatExceedsSupply(amount, outstanding);
+
+        // Last, so the two bounds above answer for an amount regardless of whether this
+        // market has been seeded before: a caller learns that a figure is impossible before
+        // it learns that the slot is taken.
+        if (launchFloatOf[marketId] != 0) revert FloatAlreadyRecorded(marketId);
+
+        launchFloatOf[marketId] = amount;
+        try PoolBrandTreasury(m.treasury).registerFloat(m.feeVault, amount) {
+            landed = true;
+        } catch {}
+        emit LaunchFloatRecorded(marketId, amount, landed);
+    }
+
+    /// @notice Land a graduation's float with its brand's treasury after a deferral.
+    ///
+    ///         **Permissionless, because the amount is not the caller's to choose.** The only
+    ///         figure this can register is `launchFloatOf[marketId]`, written by the market's
+    ///         own graduation from what the mint actually consumed. There is nothing here for
+    ///         a caller to steer, and making it `onlyOwner` would replace a third party's veto
+    ///         over a graduated market's yield with the protocol owner's — which is the
+    ///         asymmetry this whole path exists to remove. Anyone may finish the bookkeeping;
+    ///         the market's LPs are the ones who benefit.
+    ///
+    ///         Reverts rather than swallowing: `retryLaunchFloat` is the diagnostic, so a
+    ///         caller should see the treasury's own reason (`OnlyFactory` while the issuer's
+    ///         opt-in is revoked, `EnforcedPause` while the reserve is paused) instead of a
+    ///         silent no-op.
+    ///
+    /// @dev    Two guards beyond the pinned amount. A retired market has been dropped from the
+    ///         brand's float on purpose by `retireMarket`, which also clears its
+    ///         `marketOfAsset` slot — re-registering it would undo an owner action. And a
+    ///         market whose float is already registered has nothing to retry; reverting says
+    ///         so rather than spending a treasury pull to write the same number.
+    ///
+    ///         The supply bound is deliberately not re-checked here. It was checked against
+    ///         the amount when the graduation measured it, and a brand whose holders have
+    ///         since redeemed below the seed would otherwise lose a legitimate retry forever.
+    ///         The treasury caps the markets' weight at `outstanding` on every pull anyway, so
+    ///         a stale seed cannot over-draw.
+    function retryLaunchFloat(uint256 marketId) external {
+        uint256 amount = launchFloatOf[marketId];
+        if (amount == 0) revert NoLaunchFloatRecorded(marketId);
+
+        Market memory m = market(marketId);
+        if (marketOfAsset[m.reservePool][m.asset] != marketId) revert MarketIsRetired(marketId);
+
+        PoolBrandTreasury treasury = PoolBrandTreasury(m.treasury);
+        if (treasury.floatOf(m.feeVault) != 0) revert LaunchFloatAlreadyRegistered(marketId);
+
+        treasury.registerFloat(m.feeVault, amount);
+        emit LaunchFloatRecorded(marketId, amount, true);
     }
 
     /// @dev The one path that opens a market.
@@ -871,18 +1093,23 @@ contract AssetMarketFactory is
     ///
     ///      `shared` says the brand existed before this market and is not its property: see
     ///      `createMarketForBrand`. It gates exactly the three writes that would claim it.
+    ///
+    ///      `tickSpacing` is the resolved spacing the pool will be keyed on, decided by the
+    ///      caller: the tier's canonical spacing everywhere except a graduation, which walks
+    ///      the ladder first. See `_ensurePool`.
     function _openMarket(
         address brandToken,
         address creator,
         address asset,
         AssetListing memory l,
-        bool shared
+        bool shared,
+        int24 tickSpacing
     ) private returns (uint256 marketId, address feeVault, address lpDistributor, bytes32 poolId) {
         if (asset == brandToken) {
             revert AssetIsBrandToken();
         }
 
-        (PoolKey memory key, uint160 sqrtPriceX96) = _ensurePool(brandToken, asset, l);
+        (PoolKey memory key, uint160 sqrtPriceX96) = _ensurePool(brandToken, asset, l, tickSpacing);
         poolId = PoolId.unwrap(key.toId());
         if (marketOfPool[poolId] != 0) revert PoolAlreadyRegistered();
 
@@ -1030,17 +1257,35 @@ contract AssetMarketFactory is
     ///      can initialise that key first, at any price they like. Refusing is still the answer.
     ///      Adopting a pool someone else priced would open the market at their number instead of
     ///      the owner's listing, and the first liquidity in would be arbitraged to whichever is
-    ///      wrong. The cost is that such a key can be squatted to block a market; the remedy is
-    ///      another fee tier, which is a different key.
-    function _ensurePool(address brandToken, address asset, AssetListing memory l)
-        private
-        returns (PoolKey memory key, uint160 sqrtPriceX96)
-    {
-        key = _poolKey(brandToken, asset, l.fee, tickSpacingForFee(l.fee));
-
-        (uint160 existing,,,) = poolManager.getSlot0(key.toId());
-        if (existing != 0) revert PoolAlreadyInitialised(asset, brandToken);
-
+    ///      wrong.
+    ///
+    ///      **Which key is opened is the caller's decision, not this function's.** Every
+    ///      caller resolves the spacing through `nextFreeTickSpacing` first and hands the
+    ///      free one down: `_canonicalTickSpacing` for an owner listing, which refuses
+    ///      anything but the tier's own spacing, and `_resolveLaunchSpacing` for a
+    ///      graduation, which takes the first free rung of the ladder. That split is the
+    ///      whole of the squat remedy, and it is a split because the two situations are
+    ///      different. For an owner listing an occupied key is a listing error with a person
+    ///      attached: the owner picked the tier, the owner can pick another, and nothing is
+    ///      in flight while they do. For a graduation there is no such person — the tier was
+    ///      frozen into the launch record before anyone knew the key would be taken, the
+    ///      raise is already swept out of the curve, and the only alternative to routing
+    ///      around the squat is a week of hostage funds.
+    ///
+    ///      A squatted key holds no liquidity — `initialize` moves no tokens — so opening one
+    ///      rung over fragments nothing. What the uniqueness rule defends is two *traded*
+    ///      pools for one pair, and `marketOfAsset` still permits exactly one market.
+    ///
+    ///      There is no second existence check here, on purpose: the probe is a kilobyte of
+    ///      bytecode this contract cannot afford twice, the caller has already made it, and
+    ///      `PoolManager.initialize` refuses a live pool by itself if one ever slipped past.
+    function _ensurePool(
+        address brandToken,
+        address asset,
+        AssetListing memory l,
+        int24 tickSpacing
+    ) private returns (PoolKey memory key, uint160 sqrtPriceX96) {
+        key = _poolKey(brandToken, asset, l.fee, tickSpacing);
         sqrtPriceX96 = quoteSqrtPriceX96(brandToken, asset, l.assetPriceE18);
         poolManager.initialize(key, sqrtPriceX96);
     }
@@ -1058,6 +1303,18 @@ contract AssetMarketFactory is
         Market memory m = market(marketId);
         if (marketOfAsset[m.reservePool][m.asset] == marketId) {
             delete marketOfAsset[m.reservePool][m.asset];
+        }
+        // A retired market stops drawing the quote brand's float yield. Its vault is paid the
+        // tail it has already earned by `registerFloat` before the weight is dropped, so this
+        // takes nothing from the LPs — it only stops the market accruing from here.
+        //
+        // Shared quotes only: a market that owns its brand has no registered float, and its
+        // treasury never named this factory, so `registerFloat` would revert `OnlyFactory`.
+        if (marketOfBrand[m.brandToken] != marketId) {
+            PoolBrandTreasury treasury = PoolBrandTreasury(m.treasury);
+            if (treasury.factory() == address(this) && treasury.floatOf(m.feeVault) != 0) {
+                treasury.registerFloat(m.feeVault, 0);
+            }
         }
         emit MarketRetired(marketId, m.asset, m.reservePool);
     }
@@ -1079,13 +1336,74 @@ contract AssetMarketFactory is
     ///         `ProtocolFeeHook` then takes 0.50% of the output the pool produced. There
     ///         is no v3 spacing to inherit, so it gets 50 — between 0.30%'s 60 and 0.05%'s 10,
     ///         and a divisor of 10 like every other entry here.
+    ///         Dynamic fees opt NEW pools into hook pricing at spacing 50. An existing static
+    ///         pool cannot change its fee flag; its identity, liquidity and exit paths stay intact.
     function tickSpacingForFee(uint24 fee) public pure returns (int24) {
+        if (fee == LPFeeLibrary.DYNAMIC_FEE_FLAG) return 50;
         if (fee == 100) return 1;
         if (fee == 500) return 10;
         if (fee == 3_000) return 60;
         if (fee == 5_000) return 50;
         if (fee == 10_000) return 200;
         revert UnsupportedFeeTier(fee);
+    }
+
+    /// @notice The first tick spacing at which `(brandToken, asset, fee)` has no pool yet:
+    ///         the tier's canonical spacing when that key is free, otherwise the first free
+    ///         rung of the ladder above it — and `0` when all `LAUNCH_SPACING_RUNGS` are
+    ///         taken.
+    ///
+    ///         **This is the factory's only pool-existence probe, and every path asks it the
+    ///         same question.** An owner listing compares the answer against
+    ///         `tickSpacingForFee` and refuses anything else as `PoolAlreadyInitialised`; a
+    ///         graduation opens on whatever comes back. One walker rather than a walker and a
+    ///         separate check is deliberate: two copies of a `PoolKey` build, a `toId` and an
+    ///         `extsload` cost this contract more than a kilobyte of its EIP-170 budget, and
+    ///         it has none to spare. The owner paths pay one extra `getSlot0` only on a
+    ///         transaction that is about to revert anyway.
+    ///
+    ///         **Zero rather than a revert when the ladder is gone, because the callers need
+    ///         to tell the two failures apart.** `_resolveLaunchSpacing` turns it into
+    ///         `LaunchPoolLadderExhausted`, and `LaunchFactory.setSweptLaunchPoolFee` must
+    ///         allow a re-tier precisely when the ladder is gone — a reverting view would
+    ///         make the one case the escape hatch exists for the one case it could not read.
+    ///
+    ///         Comparing this against `tickSpacingForFee(fee)` is how a caller asks "is this
+    ///         pool key squatted": equal means free, anything else — including zero — means
+    ///         taken.
+    ///
+    ///         Reverts `UnsupportedFeeTier` for a tier with no canonical spacing.
+    function nextFreeTickSpacing(address brandToken, address asset, uint24 fee)
+        external
+        view
+        returns (int24 tickSpacing)
+    {
+        (tickSpacing,) = _walkSpacings(brandToken, asset, fee);
+    }
+
+    /// @dev The walk itself, handing back the tier's canonical spacing alongside the free one
+    ///      so the two in-contract callers do not each re-run `tickSpacingForFee` to compare
+    ///      against it. Both figures are wanted at both call sites, and inlining that table
+    ///      twice more is bytecode this contract does not have.
+    function _walkSpacings(address brandToken, address asset, uint24 fee)
+        private
+        view
+        returns (int24 tickSpacing, int24 canonical)
+    {
+        canonical = tickSpacingForFee(fee);
+        // Built once and walked by mutating the one field that moves; the currencies and the
+        // hook are the same on every rung.
+        PoolKey memory key = _poolKey(brandToken, asset, fee, canonical);
+        for (uint256 rung; rung < LAUNCH_SPACING_RUNGS; ++rung) {
+            (uint160 existing,,,) = poolManager.getSlot0(key.toId());
+            if (existing == 0) return (key.tickSpacing, canonical);
+            // Bounded by `LAUNCH_SPACING_RUNGS`, and `int24` tops out at 8,388,607 against a
+            // largest canonical spacing of 200.
+            unchecked {
+                key.tickSpacing = canonical + int24(uint24(rung + 1));
+            }
+        }
+        return (0, canonical);
     }
 
     /// @notice Rebuild the `PoolKey` for a market, which is what every v4 call needs.

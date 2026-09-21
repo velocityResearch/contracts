@@ -394,13 +394,10 @@ contract DeployAssetMarkets is Script {
             console.log("  launchpad.router:", address(launchpad.router));
             console.log("");
             console.log("The launchpad is deployed and its terms are applied, but LAUNCHING IS");
-            console.log("DISABLED: no brand exists yet to quote a curve in. Register the quote");
-            console.log("brand on the reserve, then open it and switch launching on:");
+            console.log("DISABLED: no reserve carries launch economics yet. Open the reserve --");
+            console.log("that makes every brand on it quotable -- then switch launching on:");
             console.log(
-                "    cast send <launchFactory> 'setPairTokenEconomics(address,(address,uint256,uint256,uint256,uint8,bool))' <brand> '(<reserve>,3236000000,8090000000,1000000,6,false)'"
-            );
-            console.log(
-                "    cast send <launchFactory> 'setPairTokenApproved(address,bool)' <brand> true"
+                "    cast send <launchFactory> 'setReserveEconomics(address,(uint256,uint256,uint256,uint8,bool))' <reserve> '(3236000000,8090000000,1000000,6,true)'"
             );
             console.log("    cast send <launchFactory> 'setLaunchEnabled(bool)' true");
         }

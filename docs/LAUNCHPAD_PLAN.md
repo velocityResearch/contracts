@@ -1,17 +1,8 @@
 # Launchpad — integration plan and contract spec
 
-> **Status: built, deployed and live on Robinhood Chain mainnet.** This started as the
-> implementation spec the contracts were written against, and it is kept because sections 3-6
-> are still the normative description of the interfaces, events and graduation semantics: a
-> change to a signature or an event there must be made here first. Where a shipped number has
-> since moved, this file has been corrected rather than annotated, and the correction is
-> called out. Live addresses and live parameter values are in
-> `deployments/asset-markets-mainnet-v6.json` and `deployments/mainnet-state.json`, never here.
->
-> Two sections describe work outside this repository and are kept only as a record of the
-> contract each consumer was built to: §8 (frontend) and §9 (indexers). This is a
-> contracts-only tree; neither directory is in it. Section numbers are load-bearing —
-> `script/DeployLaunchpad.s.sol` cites section 10 — so nothing here is renumbered.
+> **Status: implementation spec for branch `feature/launchpad`.** Everything below is the
+> contract the implementing agents build to. Sections 3–6 are normative; a change to a
+> signature or an event in them must be made here first.
 
 ## 1. What is being built
 
@@ -29,21 +20,17 @@ launch ─► LaunchCurve (x·y=k, quoted in brand X) ─► threshold ─► gr
 ```
 
 The fork base is **Pons V2** (MIT), the launchpad that runs 40k launches/day on Robinhood
-Chain against the same Uniswap v4 singleton this repo uses. The fork lives in
-`src/launchpad/`. The unmodified upstream was kept at `vendor/pons-v2/` in the development
-tree and is **not** in this contracts-only checkout: every fork file still names its upstream
-file in a `// Forked from Pons V2 (vendor/pons-v2/<file>), MIT.` header, so the provenance is
-readable even though the path resolves to nothing here. Pons V2 is MIT and published; compare
-against upstream rather than against a directory this repository does not carry.
+Chain against the same Uniswap v4 singleton this repo uses. The unmodified upstream is in
+`vendor/pons-v2/` (see its `NOTICE.md`); the fork lives in `src/launchpad/`.
 
 What changes against Pons:
 
 | Pons V2 | Here | Why |
 |---|---|---|
-| quote = native ETH or owner-approved ERC-20 | quote = a **registered brand** of a reserve the market factory approves; native path deleted | curve float is brand float, so it earns yield for the brand's treasury while the curve trades |
-| launch fee 0.0005 ETH | launch fee in the quote brand, per pair token | stablecoin-first product; no ETH plumbing |
+| quote = native ETH or owner-approved ERC-20 | quote = **any registered brand** of a reserve the owner has opened, no per-brand approval; native path deleted | curve float is brand float, so it earns yield for the brand's treasury while the curve trades, and the terms belong to the reserve rather than to each dollar |
+| launch fee 0.0005 ETH | launch fee in the quote brand, per reserve | stablecoin-first product; no ETH plumbing |
 | graduates into its own hook + permanent locker, LP fee tier 0 | graduates through `AssetMarketFactory.createLaunchMarket` into a normal asset market: `ProtocolFeeHook` skim (protocol), 0.5% LP tier, float yield to LPs | one market stack, one indexer, one router, one UI |
-| creator revenue post-graduation = hook fee share | creator revenue post-graduation = the locked position's income, split on two rates: `graduatedCreatorShareBps` of its LP fees (snapshotted per launch, ships at 4_000) and `graduatedCreatorYieldShareBps` of its float-yield rewards (read live, ships at 4_000), with `graduatedLpFundShareBps` taking 3_000 of each and the protocol keeping the remainder, all pulled from `LaunchFeeEscrow` | zero hook changes; the locked seed liquidity is the largest LP and earns like any LP |
+| creator revenue post-graduation = hook fee share | creator revenue post-graduation = the locked position's income, split on two rates: `creatorShareBps` of its LP fees (snapshotted per launch, ships at 10_000) and `graduatedCreatorYieldShareBps` of its float-yield rewards (read live, ships at 0), both pulled from `LaunchFeeEscrow` | zero hook changes; the locked seed liquidity is the largest LP and earns like any LP, but the float yield is the reserve's earning rather than the launch's |
 | `PonsV2BuybackVault` (5-year vest of bought-back tokens) | deleted | conflicts with the yield-to-LPs decision (`2105f7d`); halves the fee-split surface |
 | owner may retarget any creator's fee recipient after 3 days | deleted; only the current recipient can hand over (2-step) | centralization |
 | non-upgradeable factory | factory is a UUPS proxy behind `ProtocolGuard` like every other singleton here; curves and tokens stay immutable | graduation is the step that broke on mainnet last time; a patchable orchestrator is worth the proxy |
@@ -72,12 +59,12 @@ src/upgrade/ProtocolStack.sol        + `deployLaunchpad`
 script/DeployAssetMarkets.s.sol      + launchpad step, manifest fields
 test/launchpad/*.t.sol               new suites (§7)
 test/helpers/StackFixture.sol        + launchpad wiring helpers
-web-stable/, backend/, services/market-data/   (§8, §9 — consumers, not in this repository)
+web-stable/, backend/, services/market-data/   (§8, §9)
 ```
 
 Every fork file keeps `// SPDX-License-Identifier: MIT` and gets a one-line header
-`// Forked from Pons V2 (vendor/pons-v2/<file>), MIT.` — a provenance record, not a live path,
-as above. Contract names are `Launch*`; the `PonsV2` prefix must not survive in `src/`.
+`// Forked from Pons V2 (vendor/pons-v2/<file>), MIT.` Contract names are `Launch*`; the
+`PonsV2` prefix must not survive in `src/`.
 
 ## 3. `src/launchpad/interfaces/ILaunchpad.sol` — normative
 
@@ -97,16 +84,12 @@ interface ILaunchFeeEscrow {
 struct FeePolicySnapshot {
     address protocolFeeRecipient;
     uint16 protocolFeeShareBps;   // share of the curve fee that goes to the protocol
-    address lpFundRecipient;
-    uint16 lpFundShareBps;        // share of the curve fee that goes to the LP fund
 }
 
 /// Implemented by LaunchFactory. The curve reads it at initialize and snapshots it.
 interface ILaunchFeePolicy {
     function protocolFeeRecipient() external view returns (address);
     function protocolFeeShareBps() external view returns (uint256);
-    function lpFundRecipient() external view returns (address);
-    function lpFundShareBps() external view returns (uint16);
     function feeEscrow() external view returns (ILaunchFeeEscrow);
     function currentFeePolicy() external view returns (FeePolicySnapshot memory);
 }
@@ -210,7 +193,7 @@ interface ILaunchLocker {
     function lockTokenSupply(address token, uint256 amount) external;
     /// Permissionless. Collects the position's LP fees and float-yield rewards, splits
     /// creator/protocol and credits LaunchFeeEscrow.
-    function collect(address token) external returns (uint256 unitOut, uint256 tokenOut, uint256 yieldOut);
+    function collect(address token) external returns (uint256 unitOut, uint256 tokenOut);
     function lockedPosition(address token) external view returns (LockedPosition memory);
     function lockedSupply(address token) external view returns (uint256);
 }
@@ -274,12 +257,11 @@ Storage/config (owner):
 
 ```solidity
 struct LaunchConfig { uint256 supply; uint256 curveFeeBps; uint24 poolFee; bool enabled; }
-struct PairTokenEconomics {
-    address reserve;             // SharedReservePool the brand is registered in
-    uint256 phantomQuote;        // pairToken units
-    uint256 graduationThreshold; // pairToken units
-    uint256 launchFee;           // pairToken units, may be 0
-    uint8 decimals;
+struct ReserveEconomics {
+    uint256 phantomQuote;        // reserve-asset units
+    uint256 graduationThreshold; // reserve-asset units
+    uint256 launchFee;           // reserve-asset units, may be 0
+    uint8 decimals;              // == SharedReservePool(reserve).assetDecimals()
     bool approved;
 }
 uint256 public constant MAX_CURVE_FEE_BPS = 1_000;      // 10%
@@ -288,26 +270,52 @@ uint256 public constant GRADUATION_RESCUE_DELAY = 7 days;
 uint256 public constant MIN_PAIR_TOKEN_DECIMALS = 6;
 
 function initialize(address owner, address guard, AssetMarketFactory marketFactory, IPositionManagerV4 positionManager, ILaunchFeeEscrow feeEscrow) external initializer;
-function setLaunchDeployer(LaunchDeployer d) external onlyOwner;        // repointable; refuses a helper naming another factory
-function setGraduation(ILaunchGraduation g) external onlyOwner;         // repointable; refuses a helper naming another factory
+function setLaunchDeployer(LaunchDeployer d) external onlyOwner;        // one-shot
+function setGraduation(ILaunchGraduation g) external onlyOwner;         // one-shot
 function setLaunchForwarder(address router) external onlyOwner;
 function setLaunchEnabled(bool) external onlyOwner;
 function addLaunchConfig(LaunchConfig calldata) external onlyOwner returns (uint256 id);
 function updateLaunchConfig(uint256 id, LaunchConfig calldata) external onlyOwner;
-function setPairTokenEconomics(address pairToken, PairTokenEconomics calldata e) external onlyOwner;
-    // requires: SharedReservePool(e.reserve).isRegistered(pairToken); e.reserve is the market
-    // factory's default reserve or an `approvedReservePool`; decimals == IERC20Metadata(pairToken).decimals() >= 6
-function setPairTokenApproved(address pairToken, bool) external onlyOwner;
+mapping(address reserve => ReserveEconomics economics) public reserveEconomics;
+function launchEconomics(address pairToken) public view returns (address reserve, ReserveEconomics memory economics);
+    // reverts: PairTokenNotRegistered (marketFactory.reserveOfBrand(pairToken) == 0),
+    // ReserveNotApproved (that reserve is neither the market factory's default nor an
+    // `approvedReservePool`), PairTokenFloatShareUnavailable (the brand's treasury does not
+    // name the market factory). Private `_quoteReserve` holds those three; every launch,
+    // preview and router quote goes through it.
+function setReserveEconomics(address reserve, ReserveEconomics calldata e) external onlyOwner;
+    // requires: reserve != 0; phantomQuote != 0 && graduationThreshold != 0;
+    // e.decimals >= MIN_PAIR_TOKEN_DECIMALS; reserve is the market factory's default reserve
+    // or an `approvedReservePool`; SharedReservePool(reserve).assetDecimals() == e.decimals;
+    // `_requireQuotable` at MIN_LAUNCH_SUPPLY / MAX_CURVE_FEE_BPS. Names no brand.
+function setReserveApproved(address reserve, bool) external onlyOwner;  // reverts ReserveEconomicsInvalid while phantomQuote == 0
 function setProtocolFeeRecipient(address) external onlyOwner;
-function setProtocolFeeShareBps(uint16) external onlyOwner;     // <= MAX_PROTOCOL_FEE_SHARE_BPS 5_000
-function setLpFundRecipient(address) external onlyOwner;        // must be set before any fund share is nonzero
-function setLpFundShareBps(uint16) external onlyOwner;          // <= MAX_LP_FUND_SHARE_BPS 5_000; + protocol share <= 10_000
+function setProtocolFeeShareBps(uint16) external onlyOwner;     // <= 5_000
 function setMaxCreatorTaxBps(uint16) external onlyOwner;        // <= 1_000
 function setSnipeTax(uint256 startBps, uint256 seconds_) external onlyOwner;
-function setGraduatedCreatorShareBps(uint16) external onlyOwner;      // LP fees, snapshotted per launch; ships at 4_000
-function setGraduatedCreatorYieldShareBps(uint16) external onlyOwner; // float yield, read live; ships at 4_000
-function setGraduatedLpFundShareBps(uint16) external onlyOwner;       // both post-graduation legs; ships at 3_000
+function setGraduatedCreatorShareBps(uint16) external onlyOwner; // <= 10_000, default 10_000, LP fees, snapshotted
+function setGraduatedCreatorYieldShareBps(uint16) external onlyOwner; // <= 10_000, default 0, float yield, read live
 ```
+
+**Launch collateral is keyed by reserve, not by brand.** Every brand is a costless 1:1 wrapper
+of its reserve's asset, minted at `assetDecimals`, so one unit of any brand of a reserve is
+worth the same and counts the same: a `phantomQuote` and `graduationThreshold` sized for one
+brand are correct for all of them. Keying by brand made every new platform dollar wait on an
+owner transaction that could only ever repeat the same five figures; keying by reserve means a
+dollar issued tomorrow is launchable the moment the market factory registers it and its issuer
+opts into float sharing. The two per-brand conditions are not dropped — they move to launch
+time, into `_quoteReserve`, where they are re-read on every launch instead of once at approval.
+
+The real cost is that **there is no per-brand kill switch.** The owner's only switch is
+`setReserveApproved(reserve, false)`, which closes every brand of that reserve at once; a
+specific dollar is refused only by the structural conditions — not registered through the
+market factory, or no float-share opt-in — and neither of those is the launchpad owner's to
+set. Refusing one brand of an otherwise-open reserve therefore needs the market factory's
+brand registry or the issuer's own treasury, not this contract. Accepted deliberately: the
+per-brand switch's only real use was withholding launchability from a dollar that met every
+structural condition, which is exactly the rollout tax this change exists to remove. Existing
+launches are unaffected by either switch — each curve holds its figures as constructor
+immutables.
 
 Launch:
 
@@ -364,9 +372,9 @@ Two bounds keep terms that cannot graduate from ever launching. `_requireSeedabl
 rejects a seed V4 would refuse to mint. `_requireSeedPriceResolvable` rejects terms whose
 `assetPriceE18` would fall below `1e4`: that price is what the graduated pool opens at, its
 truncation strands that fraction of the seed, and `LaunchGraduation.MAX_DUST_BPS` enforces the
-same bound from the other side at graduation. A brand's reserve is also re-checked against
-`marketFactory.approvedReservePool` at launch time, not only when its economics are written —
-a reserve retired underneath a live brand would otherwise strand every launch quoted in it.
+same bound from the other side at graduation. The brand's reserve is resolved and re-checked
+against `marketFactory.approvedReservePool` on every launch rather than stored per brand — a
+reserve retired underneath a live brand would otherwise strand every launch quoted in it.
 
 Creator fee recipient: `proposeCreatorFeeRecipient(token, newRecipient)` by the current
 recipient, `acceptCreatorFeeRecipient(token)` by the proposed one. Accepting updates the
@@ -467,7 +475,7 @@ Offline suites run against `new PoolManager` and the stand-ins already in
 Invariants worth a handler: curve `trackedQuote ≥ realQuoteReserve + fee balances`; sum of
 escrow balances ≤ escrow token balance; locker-recorded positions are always staked.
 
-## 8. Frontend (`web-stable/`) — consumer, not in this repository
+## 8. Frontend (`web-stable/`)
 
 - `packages/market-core`: launchpad ABIs via `scripts/sync-abis.mjs` `EXPORTS`
   (`LaunchFactory`, `LaunchCurve`, `LaunchRouter`, `LaunchLocker`, `LaunchFeeEscrow`),
@@ -482,7 +490,7 @@ escrow balances ≤ escrow token balance; locker-recorded positions are always s
 - Keep the app's conventions: `web-stable/AGENTS.md`, reviewed transactions, exact approvals,
   simulation, min-outs, receipt verification.
 
-## 9. Indexers — consumers, not in this repository
+## 9. Indexers
 
 - `backend/` (Postgres, serves the web): tables `launches`, `launch_trades`; consume
   `TokenLaunched`, `LaunchSwept`, `PoolGraduated`, `CurveBuy`, `CurveSell`, `SnipeTaxCharged`
@@ -495,55 +503,23 @@ escrow balances ≤ escrow token balance; locker-recorded positions are always s
 
 ## 10. Deployment
 
-`script/DeployLaunchpad.s.sol` holds the shipped economics in one place, as the
-`LaunchpadDefaults` library, and both the standalone script and the full-stack
-`DeployAssetMarkets.s.sol` apply them the same way. **That library is the authority; the list
-below restates it and must be corrected against it, not the other way round.** Every figure
-here is snapshotted into each curve at launch and into each launch record, so a deployment
-that applies a different number does not merely configure the launchpad differently, it
-produces launches whose terms cannot be brought back into line later.
-
-- `ProtocolStack.deployLaunchpad` deploys `LaunchFeeEscrow`, `LaunchLocker`,
-  `LaunchGraduation`, `LaunchDeployer`, `LaunchFactory` (UUPS proxy) and `LaunchRouter`, wires
-  them, and the owner then calls `marketFactory.setLaunchpad(graduation)`,
-  `launchFactory.setLaunchForwarder(router)`, `LaunchpadDefaults.applyPolicy(...)` and
-  `LaunchpadDefaults.approveQuoteBrand(...)`.
-- Launch config: `{supply: 1e27, curveFeeBps: 100, poolFee: 5_000, enabled: true}`. The 0.50%
-  LP tier pairs with the hook's 0.50% skim to make the 1% headline fee on a graduated market.
-- Quote-brand economics, in the brand's own 6-decimal units:
-  `{phantomQuote: 3_236e6, graduationThreshold: 8_090e6, launchFee: 1e6, decimals: 6}`. That
-  ratio puts 71.4% of supply into the graduated pool and locks the rest.
-- **The split is 40/30/30 — creator, LP fund, protocol** — and it is applied in three places
-  so that the curve and both post-graduation legs agree:
-
-  | Knob | Value | Applies to |
-  |---|---|---|
-  | `protocolFeeShareBps` | 3_000 | the curve's trade fee |
-  | `lpFundShareBps` | 3_000 | the curve's trade fee |
-  | `graduatedCreatorShareBps` | 4_000 | the locked position's LP FEES, snapshotted per launch |
-  | `graduatedCreatorYieldShareBps` | 4_000 | the locked position's FLOAT YIELD, read live |
-  | `graduatedLpFundShareBps` | 3_000 | both post-graduation legs |
-
-  The creator's share of the curve fee is the remainder, 4_000, and is never written: it is
-  whatever protocol and fund do not take, which is why the two setters are bounded jointly
-  against 10_000 rather than separately.
-
-  This replaces the original plan of `graduatedCreatorShareBps 10_000` with
-  `graduatedCreatorYieldShareBps 0`, which shipped first and was moved twice: once to give the
-  creator a share of the float yield, once to introduce the LP fund. The ordering matters when
-  applying it to a live factory — the creator share must come DOWN to 4_000 before the fund
-  share goes UP to 3_000, or the joint bound rejects the pair. `setLpFundRecipient` must
-  precede any nonzero fund share; every share setter refuses a rate while the recipient is
-  unset.
-- Other defaults: `maxCreatorTaxBps 1_000`, snipe tax `9_900 bps` decaying over `15 s`.
-- Launching is **not** enabled by `applyPolicy`. A launchpad with a config but no approved
-  quote brand reverts on every launch, so the flag is flipped once the brand it trades
-  against exists.
+- `ProtocolStack.deployLaunchpad`: `LaunchFeeEscrow`, `LaunchLocker`, `LaunchGraduation`,
+  `LaunchDeployer`, `LaunchFactory` (UUPS proxy), `LaunchRouter`; wire one-shots; owner calls
+  `marketFactory.setLaunchpad(graduation)`, `launchFactory.setLaunchForwarder(router)`,
+  `addLaunchConfig({supply: 1e27, curveFeeBps: 100, poolFee: 5_000, enabled: true})`,
+  `setReserveEconomics(reserve, {phantom: 3_236e6, threshold: 8_090e6, launchFee: 1e6, decimals: 6, approved: true})`
+  — once per reserve, and nothing per brand: every dollar the market factory registers on that
+  reserve whose issuer has called `PoolBrandTreasury.setFactory` is launchable without a
+  further owner call.
+- Defaults: `protocolFeeShareBps 3_000`, `maxCreatorTaxBps 1_000`, snipe tax `9_900 bps / 15 s`,
+  `graduatedCreatorShareBps 10_000`, `graduatedCreatorYieldShareBps 0`. A trader's 1% on a
+  graduated market therefore ends up half protocol (the hook's skim) and half creator (the
+  pool's own fee tier), with the float yield the protocol's until the live knob is raised.
 - Manifest (`deployments/*.json`) gains a `launchpad` block; `app-networks.json` follows.
-- Order: testnet (46630) first, then Base Sepolia, then mainnet after the audit. All three
-  have happened.
+- Order: testnet (46630) first with the existing testnet stack, then Base Sepolia, then mainnet
+  only after the audit.
 
-## 11. Waves — the build plan, kept as a record
+## 11. Waves
 
 1. **Contracts core** (parallel): `CoreFork` (§2 fork files + `LaunchFactory`), `FactorySeam`
    (§4), `Graduation` (§6 + locker), each with its own tests.

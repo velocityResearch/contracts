@@ -62,11 +62,16 @@ contract SharedQuoteMainnetForkTest is Test {
     ///      the factory answers to this 2-of-3 Safe, not to the deployer EOA any more.
     address constant OWNER = 0x28569c1716EF81f307d666A1EC08bDAE92AC0373;
 
-    /// @dev The deploying EOA, which is NOT the owner any more but is still the stored brand
-    ///      operator and treasury admin for AIUSD. Those are per-brand roles held as data
-    ///      rather than access control on the factory, so the ownership handover did not move
-    ///      them, and asserting they are unchanged is part of proving the upgrade touched
-    ///      nothing it should not have.
+    /// @dev The deploying EOA, which is NOT the owner any more but is still AIUSD's stored
+    ///      `brandOperatorOf`. That is a per-brand role held as data rather than access
+    ///      control on the factory, so the ownership handover did not move it, and asserting
+    ///      it is unchanged is part of proving the upgrade touched nothing it should not have.
+    ///
+    ///      **The treasury admin is a different story and is no longer this address.** It was
+    ///      rotated to the Safe on chain; see `AIUSD_TREASURY_ADMIN`. The two roles are
+    ///      separable by design — `PoolBrandTreasury.setAdmin` and
+    ///      `PooledBrandToken.handOverMetadataAdmin` are independent — and only the treasury
+    ///      admin can move money or opt the brand into sharing its float yield.
     address constant AIUSD_ISSUER = 0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9;
 
     /// @notice The live `MarketRouter` proxy bound to that factory. It was never upgraded for
@@ -82,8 +87,21 @@ contract SharedQuoteMainnetForkTest is Test {
     ///         and the single quote unit all three markets below borrow.
     address constant AIUSD = 0xE7BB388959d89f809BE24da16A1DaBa0dC58E596;
 
-    /// @notice AIUSD's `PoolBrandTreasury`. Its `admin` is the issuer and must stay the issuer.
+    /// @notice AIUSD's `PoolBrandTreasury`.
     address constant AIUSD_TREASURY = 0xE2d144F8b18d4743fdC4D74e4AE621307e443e38;
+
+    /// @notice Who administers that treasury on chain today: the Safe, not the deployer EOA.
+    ///
+    /// @dev    This assertion used to name `AIUSD_ISSUER` and had drifted — the admin was
+    ///         rotated with the rest of custody while the metadata operator stayed behind.
+    ///         Pinned separately rather than folded into `OWNER` because the two being the
+    ///         same address is a fact about today's deployment, not a property: a brand whose
+    ///         issuer is a third party would have a different admin here, and that is the
+    ///         case `PoolBrandTreasury.setFactory` exists for.
+    ///
+    ///         Operationally this is the address that must call `setFactory(marketFactory)`
+    ///         before a launch may be quoted in AIUSD.
+    address constant AIUSD_TREASURY_ADMIN = OWNER;
 
     address constant USDG = MainnetAddresses.USDG;
     address constant NVDA = MainnetAddresses.NVDA;
@@ -292,12 +310,17 @@ contract SharedQuoteMainnetForkTest is Test {
         // `isSharedQuote` true for all three: no market can claim to own AIUSD.
         assertEq(factory.marketOfBrand(AIUSD), 0, "AIUSD still belongs to no market");
         assertEq(factory.feeVaultOfBrand(AIUSD), address(0), "and has no vault of its own");
+        // Opening three markets in AIUSD took neither of the dollar's two authorities. They
+        // sit with different parties, and the test names both so a change to either is loud:
+        // the treasury admin — the only address that can move AIUSD's yield, or opt it into
+        // sharing that yield with the markets quoting it — is the Safe, while the metadata
+        // operator is still the deployer EOA that registered the brand.
         assertEq(
             PoolBrandTreasury(AIUSD_TREASURY).admin(),
-            AIUSD_ISSUER,
-            "the issuer still administers AIUSD's treasury"
+            AIUSD_TREASURY_ADMIN,
+            "the Safe still administers AIUSD's treasury"
         );
-        assertEq(factory.brandOperatorOf(AIUSD), AIUSD_ISSUER, "and still holds metadata authority");
+        assertEq(factory.brandOperatorOf(AIUSD), AIUSD_ISSUER, "and the issuer holds metadata");
     }
 
     // ─── 4. The live pool is real and tradeable ──────────────────────────

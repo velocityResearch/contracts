@@ -257,8 +257,13 @@ contract LpRewardDistributorTest is StackFixture {
 
         assertEq(posm.ownerOf(tokenId), address(dist), "custody");
         assertEq(dist.stakerOf(tokenId), alice, "credited");
-        assertEq(dist.stakedLiquidityOf(alice), liquidity, "weight");
-        assertEq(dist.totalStaked(), liquidity, "total");
+        assertEq(dist.stakedLiquidityOf(alice), liquidity, "liquidity");
+
+        // Weight is the capital the position holds, valued in `currency1`, not its liquidity.
+        uint256 weight = dist.stakedWeightOfPosition(tokenId);
+        assertGt(weight, 0, "weighed at stake time");
+        assertEq(dist.stakedWeightOf(alice), weight, "account weight");
+        assertEq(dist.totalStaked(), weight, "total");
         assertEq(dist.positionsOf(alice).length, 1, "listed");
     }
 
@@ -308,16 +313,21 @@ contract LpRewardDistributorTest is StackFixture {
         assertEq(dist.stakerOf(tokenId), alice, "accepted on the full key");
     }
 
-    function test_stakeRejectsAConcentratedPosition() public {
+    function test_stakeAdmitsAConcentratedPosition() public {
         uint256 tokenId = _mintPosition(alice, 10_000e6, 10_000e18, false);
+        uint128 liquidity = posm.getPositionLiquidity(tokenId);
 
         vm.startPrank(alice);
         posm.approve(address(dist), tokenId);
-        vm.expectRevert(
-            abi.encodeWithSelector(LpRewardDistributor.NotFullRange.selector, -6000, 6000)
-        );
         dist.stake(tokenId, alice);
         vm.stopPrank();
+
+        assertEq(dist.stakerOf(tokenId), alice, "a band is admitted");
+        assertEq(
+            dist.totalStaked(),
+            dist.stakeWeightFor(liquidity, -6000, 6000),
+            "weighed at the capital its own range holds"
+        );
     }
 
     function test_stakeRejectsAZeroBeneficiary() public {

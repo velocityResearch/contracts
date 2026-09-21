@@ -20,7 +20,15 @@ import {IPermit2, IPositionManagerV4} from "../src/interfaces/IPositionManagerV4
 ///         30% protocol, 30% LP fund, replacing today's 30/70 curve split and the
 ///         100%-creator / 0%-creator post-graduation pair.
 ///
-/// @dev    **Where the fund's share comes from is the whole design.** On the curve the three
+/// @dev    **The float-yield leg this script split three ways is retired.** A locked position
+///         now renounces its reward stream the moment it is recorded, so a graduated launch
+///         earns no float yield and there is no second leg to divide;
+///         `graduatedCreatorYieldShareBps` was deleted from `LaunchFactory` rather than set to
+///         zero, because a rate nobody reads is a rate that gets switched back on by accident.
+///         The step that wrote it is gone from here; the rest is kept as the record of what
+///         was sent. `UpgradeGraduateIntoLaunchDollarMainnet` is the change that retired it.
+///
+///         **Where the fund's share comes from is the whole design.** On the curve the three
 ///         shares are peers: the protocol's and the fund's are stored rates, the creator is
 ///         paid the remainder, and all three are snapshotted into the curve at launch. After
 ///         graduation they are not peers. The creator's LP-fee share stays frozen per
@@ -33,8 +41,8 @@ import {IPermit2, IPositionManagerV4} from "../src/interfaces/IPositionManagerV4
 ///
 ///         1. Upgrade the `LaunchFactory` proxy. `lpFundRecipient`, `lpFundShareBps` and
 ///            `graduatedLpFundShareBps` are an address and two `uint16`s appended into the
-///            slot `graduatedCreatorShareBps`, `launchEnabled` and
-///            `graduatedCreatorYieldShareBps` already share: 2 + 1 + 2 bytes leave 27 free and
+///            slot `graduatedCreatorShareBps`, `launchEnabled` and the graduated-yield rate
+///            (since retired) already share: 2 + 1 + 2 bytes leave 27 free and
 ///            the three new fields take 24 of them. Nothing below the slot moves, no mapping
 ///            or array shifts, and `upgradeToAndCall` carries empty calldata deliberately —
 ///            the new fields read the zero default, which is the fund leg switched off.
@@ -62,12 +70,10 @@ import {IPermit2, IPositionManagerV4} from "../src/interfaces/IPositionManagerV4
 ///         difference from `UpgradeLaunchpadFeeSplitMainnet` is deliberate.** That script
 ///         refused because the change it made was only expressible in the locker, so a
 ///         position left on the old one got nothing. Here the change is mostly in the factory,
-///         and the old locker keeps reading two of the three knobs live. A position staked
-///         under the old locker therefore keeps working and is partially repriced: its float
-///         yield follows `graduatedCreatorYieldShareBps` and moves to 40% creator, and its LP
-///         fees keep paying the 100% its record was snapshotted with. What it cannot have is
-///         a fund leg, because the old bytecode has no third recipient. No value is lost and
-///         no collection breaks; those positions simply stay on two-way terms.
+///         and the old locker reads the factory's live rates. A position staked under the old
+///         locker therefore keeps working: its LP fees keep paying the 100% its record was
+///         snapshotted with. What it cannot have is a fund leg, because the old bytecode has
+///         no third recipient. No value is lost and
 ///
 ///         The three launches in that position as of writing are markets 16, 17 and 18. The
 ///         script enumerates them and prints them, because an operator who does not know
@@ -77,8 +83,8 @@ import {IPermit2, IPositionManagerV4} from "../src/interfaces/IPositionManagerV4
 ///         **`_economicsDigest` changes.** `lpFundShareBps` joins it, because it is
 ///         snapshotted into the curve and therefore fixes the creator's remainder for the life
 ///         of the launch, which is exactly what the digest exists to let a creator pin.
-///         `graduatedLpFundShareBps` stays out of it for the same reason the yield share does:
-///         it is read live and cannot move what the creator is owed.
+///         `graduatedLpFundShareBps` stays out of it because it is read live and cannot move
+///         what the creator is owed.
 ///
 ///         **`web-stable` needs no redeploy for this.** It reads the pin from the chain inside
 ///         the submit handler (`previewLaunchEconomics`, `launch-wizard.tsx`) rather than
@@ -108,8 +114,6 @@ contract UpgradeLaunchpadLpFundMainnet is Script {
     uint16 constant LP_FUND_SHARE_BPS = 3_000;
     /// @notice The creator's share of a graduated position's LP fees, snapshotted per launch.
     uint16 constant CREATOR_FEE_SHARE_BPS = 4_000;
-    /// @notice The creator's share of its float yield, read live at every collect.
-    uint16 constant CREATOR_YIELD_SHARE_BPS = 4_000;
 
     /// @dev Everything read off the live proxies before the upgrade, so the post-checks compare
     ///      against what was actually there rather than against a constant in this file.
@@ -128,7 +132,6 @@ contract UpgradeLaunchpadLpFundMainnet is Script {
         uint256 launchCount;
         uint256 protocolFeeShareBps;
         uint16 graduatedCreatorShareBps;
-        uint16 graduatedCreatorYieldShareBps;
     }
 
     function run() external returns (address locker, address graduation) {
@@ -169,7 +172,6 @@ contract UpgradeLaunchpadLpFundMainnet is Script {
         factory.setProtocolFeeShareBps(PROTOCOL_FEE_SHARE_BPS);
         factory.setLpFundShareBps(LP_FUND_SHARE_BPS);
         factory.setGraduatedCreatorShareBps(CREATOR_FEE_SHARE_BPS);
-        factory.setGraduatedCreatorYieldShareBps(CREATOR_YIELD_SHARE_BPS);
         factory.setGraduatedLpFundShareBps(LP_FUND_SHARE_BPS);
 
         // 3. The locker that knows a third recipient, and the module that holds it.
@@ -221,15 +223,13 @@ contract UpgradeLaunchpadLpFundMainnet is Script {
         was.launchCount = factory.launchCount();
         was.protocolFeeShareBps = factory.protocolFeeShareBps();
         was.graduatedCreatorShareBps = factory.graduatedCreatorShareBps();
-        was.graduatedCreatorYieldShareBps = factory.graduatedCreatorYieldShareBps();
     }
 
     /// @dev Enumerated and printed rather than refused. A graduated position is staked under
     ///      the old locker, no function moves it between lockers, and the old locker has no
     ///      third recipient — so these keep paying their snapshotted LP-fee share to the
-    ///      creator with the protocol taking the rest, while their float yield does follow the
-    ///      live rate this script sets. Nothing is stranded and nothing breaks; the terms
-    ///      simply stay two-way, and whoever reports this change needs the list.
+    ///      creator with the protocol taking the rest. Nothing is stranded and nothing breaks;
+    ///      the terms simply stay two-way, and whoever reports this change needs the list.
     function _reportPositionsStayingOnTheOldLocker(
         LaunchFactory factory,
         uint256 count,
@@ -249,7 +249,7 @@ contract UpgradeLaunchpadLpFundMainnet is Script {
         }
         if (found == 0) console.log("  none");
         console.log("  total:", found);
-        console.log("  These keep two-way terms. Their float yield still follows the live rate.");
+        console.log("  These keep two-way terms: creator LP fees plus protocol, no fund leg.");
         console.log("");
     }
 
@@ -299,10 +299,6 @@ contract UpgradeLaunchpadLpFundMainnet is Script {
             factory.graduatedCreatorShareBps() == CREATOR_FEE_SHARE_BPS, "fee share not applied"
         );
         require(
-            factory.graduatedCreatorYieldShareBps() == CREATOR_YIELD_SHARE_BPS,
-            "yield share not applied"
-        );
-        require(
             factory.graduatedLpFundShareBps() == LP_FUND_SHARE_BPS,
             "graduated fund share not applied"
         );
@@ -314,9 +310,7 @@ contract UpgradeLaunchpadLpFundMainnet is Script {
         );
         require(
             uint256(factory.graduatedCreatorShareBps()) + factory.graduatedLpFundShareBps()
-                    <= 10_000
-                && uint256(factory.graduatedCreatorYieldShareBps())
-                        + factory.graduatedLpFundShareBps() <= 10_000,
+                <= 10_000,
             "graduated split exceeds a whole leg"
         );
 
@@ -345,11 +339,6 @@ contract UpgradeLaunchpadLpFundMainnet is Script {
         console.log("  creator (remainder):", 10_000 - PROTOCOL_FEE_SHARE_BPS - LP_FUND_SHARE_BPS);
         console.log("Graduated LP fees, per 10,000:");
         console.log("  creator (was", was.graduatedCreatorShareBps, "):", CREATOR_FEE_SHARE_BPS);
-        console.log("  LP fund: ", LP_FUND_SHARE_BPS);
-        console.log("Graduated float yield, per 10,000:");
-        console.log(
-            "  creator (was", was.graduatedCreatorYieldShareBps, "):", CREATOR_YIELD_SHARE_BPS
-        );
         console.log("  LP fund: ", LP_FUND_SHARE_BPS);
         console.log("LP fund recipient:", lpFund);
         console.log("");

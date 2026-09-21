@@ -202,10 +202,10 @@ contract DeployBaseSepoliaLaunchpad is Script {
                 address(0)
             );
 
-        // Approve the brand as a launch quote.
-        LaunchpadDefaults.approveQuoteBrand(
+        // Open the reserve for launches. Every brand on it -- the one just registered, and
+        // any issued later -- is quotable from here with no further owner action.
+        LaunchpadDefaults.approveQuoteReserve(
             d.launchFactory,
-            d.quoteBrand,
             address(d.reserve),
             LaunchpadDefaults.PHANTOM_QUOTE,
             LaunchpadDefaults.GRADUATION_THRESHOLD,

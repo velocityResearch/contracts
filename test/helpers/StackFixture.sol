@@ -214,10 +214,11 @@ abstract contract StackFixture is Test {
     }
 
     /// @notice The listing a launchpad passes to `createLaunchMarket` for an 18-decimal asset:
-    ///         the product's 0.50% tier, the oracle depth it ships with, and the unit named
-    ///         after the asset's own symbol — "<SYM> Market Dollar" / "<SYM>.d", the shape the
-    ///         graduation module mints. `assetPriceE18` is the price of ONE WHOLE asset in
-    ///         WHOLE unit units, scaled by 1e18. `approved` is ignored by the factory.
+    ///         the product's 0.50% tier and the oracle depth it ships with. `assetPriceE18` is
+    ///         the price of ONE WHOLE asset in WHOLE quote units, scaled by 1e18. `approved`
+    ///         is ignored by the factory, and so are the unit strings — a graduate is quoted
+    ///         in the launch's own brand and mints no unit for them to name. They are filled
+    ///         in anyway so a caller can tell a validated field from an inert one.
     function _launchListing(address asset, uint256 assetPriceE18)
         internal
         view

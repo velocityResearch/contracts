@@ -9,6 +9,7 @@ import {Hooks} from "v4-core/libraries/Hooks.sol";
 
 import {IPermit2, IPositionManagerV4} from "../../src/interfaces/IPositionManagerV4.sol";
 import {SharedReservePool} from "../../src/pool/SharedReservePool.sol";
+import {PoolBrandTreasury} from "../../src/pool/PoolBrandTreasury.sol";
 import {AssetMarketFactory} from "../../src/markets/AssetMarketFactory.sol";
 import {ProtocolFeeHook} from "../../src/markets/ProtocolFeeHook.sol";
 import {LaunchCurve} from "../../src/launchpad/LaunchCurve.sol";
@@ -116,10 +117,15 @@ contract LaunchpadDeploymentTest is StackFixture, DeployLaunchpad {
         launchConfigId =
             LaunchpadDefaults.applyPolicy(lp.factory, protocolFeeRecipient, lpFundRecipient);
 
-        (quoteBrand,) = marketFactory.registerBrand("Launch Dollar", "launchUSD");
-        LaunchpadDefaults.approveQuoteBrand(
+        address quoteTreasury;
+        (quoteBrand, quoteTreasury) = marketFactory.registerBrand("Launch Dollar", "launchUSD");
+        // The brand's issuer agrees to share the float yield of the markets it quotes. The
+        // deploy script performs this on the real brand's treasury; here the registration
+        // left this contract as its admin. It is still required: the opt-in is read per brand
+        // at launch, not banked when the reserve is opened.
+        PoolBrandTreasury(quoteTreasury).setFactory(address(marketFactory));
+        LaunchpadDefaults.approveQuoteReserve(
             lp.factory,
-            quoteBrand,
             address(reserve),
             LaunchpadDefaults.PHANTOM_QUOTE,
             LaunchpadDefaults.GRADUATION_THRESHOLD,
@@ -256,7 +262,6 @@ contract LaunchpadDeploymentTest is StackFixture, DeployLaunchpad {
         assertEq(lp.factory.snipeTaxStartBps(), 9_900, "snipe tax start");
         assertEq(lp.factory.snipeTaxSeconds(), 15, "snipe tax window");
         assertEq(lp.factory.graduatedCreatorShareBps(), 4_000, "graduated creator fee share");
-        assertEq(lp.factory.graduatedCreatorYieldShareBps(), 4_000, "graduated creator yield share");
         assertEq(lp.factory.lpFundRecipient(), lpFundRecipient, "LP fund recipient");
         assertEq(lp.factory.lpFundShareBps(), 3_000, "LP fund share of the curve fee");
         assertEq(lp.factory.graduatedLpFundShareBps(), 3_000, "LP fund share after graduation");
@@ -268,20 +273,14 @@ contract LaunchpadDeploymentTest is StackFixture, DeployLaunchpad {
         assertEq(config.poolFee, 5_000, "pool fee");
         assertTrue(config.enabled, "config enabled");
 
-        (
-            address brandReserve,
-            uint256 phantom,
-            uint256 threshold,
-            uint256 fee,
-            uint8 dec,
-            bool ok
-        ) = lp.factory.pairTokenEconomics(quoteBrand);
+        (address brandReserve, LaunchFactory.ReserveEconomics memory economics) =
+            lp.factory.launchEconomics(quoteBrand);
         assertEq(brandReserve, address(reserve), "brand reserve");
-        assertEq(phantom, 3_236e6, "phantom quote");
-        assertEq(threshold, 8_090e6, "graduation threshold");
-        assertEq(fee, 1e6, "launch fee");
-        assertEq(dec, 6, "brand decimals");
-        assertTrue(ok, "brand approved");
+        assertEq(economics.phantomQuote, 3_236e6, "phantom quote");
+        assertEq(economics.graduationThreshold, 8_090e6, "graduation threshold");
+        assertEq(economics.launchFee, 1e6, "launch fee");
+        assertEq(economics.decimals, 6, "reserve asset decimals");
+        assertTrue(economics.approved, "reserve open for launches");
     }
 
     // ─── Rehearsal ───────────────────────────────────────────────────────
@@ -384,9 +383,9 @@ contract LaunchpadDeploymentTest is StackFixture, DeployLaunchpad {
         this.checkEnv(e);
     }
 
-    /// @notice A reserve the market factory does not register units in is refused: graduation
-    ///         swaps the curve's float into the new market's unit inside that reserve, so a
-    ///         brand from anywhere else has no 1:1 path and every graduation would revert.
+    /// @notice A reserve the market factory does not open markets in is refused: graduation
+    ///         opens the market in that reserve, quoted in the brand the curve was quoted in,
+    ///         so a brand pooled anywhere else would fail every graduation.
     function test_preflightRefusesAnUnknownReserve() public {
         Env memory e = _scriptEnv();
         e.reservePool = _deployReservePool(address(usdg), address(yieldSource), address(this));
@@ -395,7 +394,7 @@ contract LaunchpadDeploymentTest is StackFixture, DeployLaunchpad {
     }
 
     /// @notice A quote brand that is not registered in the reserve is refused here rather than
-    ///         by `setPairTokenEconomics` halfway through the configuration.
+    ///         at the first launch, long after the configuration finished.
     function test_preflightRefusesABrandTheReserveDoesNotHold() public {
         Env memory e = _scriptEnv();
         e.quoteBrand = address(usdg);

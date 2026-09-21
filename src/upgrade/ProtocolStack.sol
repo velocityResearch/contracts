@@ -288,15 +288,24 @@ library ProtocolStack {
     ///         **What this does NOT do, and why.** Two of the launchpad's links cross into the
     ///         market stack: `AssetMarketFactory.setLaunchpad(graduation)`, which is what lets
     ///         a graduation list an asset without an owner approval, and the launch parameters
-    ///         (`addLaunchConfig`, `setPairTokenEconomics`, the fee recipient). Both are owner
+    ///         (`addLaunchConfig`, `setReserveEconomics`, the fee recipient). Both are owner
     ///         calls on contracts this function did not deploy, and both are economic rather
-    ///         than structural — the brand a launch is quoted in and the threshold it
-    ///         graduates at belong to the launch they precede. The caller makes them; see
-    ///         `script/DeployLaunchpad.s.sol`.
+    ///         than structural — the reserve a launch's collateral is priced in and the
+    ///         threshold it graduates at belong to the launch they precede. The caller makes
+    ///         them; see `script/DeployLaunchpad.s.sol`.
     ///
     ///         Launching stays disabled until the caller enables it: a launchpad with no
-    ///         config and no approved brand would revert on every launch anyway, and the flag
-    ///         is what makes that state explicit rather than accidental.
+    ///         config and no reserve economics would revert on every launch anyway, and the
+    ///         flag is what makes that state explicit rather than accidental.
+    ///
+    ///         **This is an internal library, so `new LaunchFactory()` below puts the
+    ///         factory's creation code — and with it the unresolved reference to
+    ///         `LaunchGuardDeployer` — into whatever contract calls this.** That caller is the
+    ///         one that has to be linked; there is nothing to link here. `LaunchGuardDeployer`
+    ///         holds `LaunchGraduationGuard`'s creation code so `LaunchFactory` fits under
+    ///         EIP-170, and `LaunchFactory.initialize` delegatecalls it, so an unlinked caller
+    ///         deploys a proxy whose initialiser reverts. `script/DeployLaunchpad.s.sol`
+    ///         asserts the link before it spends anything.
     /// @param  owner MUST be the address whose transaction runs this function. The four
     ///         one-shots below are `onlyOwner` on the contracts deployed here, and they are
     ///         performed here — a different `owner` would leave the launchpad unwireable, since

@@ -623,6 +623,14 @@ capacity is **shared inventory across every brand in the group** rather than per
 true, and which nothing else in dex-lib would infer. This needs Kyber's executor to learn one
 new call, so do not open with it.
 
+**That shared-inventory shape is about to matter more, not less.** Today six markets draw on the
+sUSDai reserve through four brands: the equities (13, 14, 15) share `AIUSD`, and the three
+launchpad graduates (16, 17, 18) each have a brand of their own, minted when they graduated. A
+pending contract change stops graduation from minting one — a launch keeps the dollar it raised
+in — so new markets will keep arriving without adding brands, and the ratio of pools to brands
+only grows. A per-brand capacity model would have been wrong from the start; it gets wronger with
+every graduation. Model the reserve once, per reserve, and let `CalculateLimit()` share it.
+
 `MarketLens` (`src/markets/MarketLens.sol`, written for the 0x work) is the on-chain surface all
 three read: `maxMint`, `redeemableAssets`, `brandForRedeem`, `route`. **It is deployed, at
 `0x704E7a0e7864250303B05b25EabC2417CE99ceb6`** — ownerless, stateless, every function `view` —

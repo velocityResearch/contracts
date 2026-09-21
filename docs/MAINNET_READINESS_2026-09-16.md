@@ -7,20 +7,21 @@ that produced gen-6, and read `deployments/asset-markets-mainnet-v6.json` plus
 count and owner below belongs to gen-4 and is stale by construction; the generated state file
 is the only place those are current, and `deployments/README.md` explains the split.
 
-Nothing below should be read as instructions. Several things went a different way than
-planned, and several more have changed since, so the list of corrections is now longer than
-the list of things that held.
+Four things in it went a different way than planned and are worth stating plainly, because
+reading the ordered path below as instructions would be wrong:
 
-**What went differently at deployment time:**
-
-- **No timelock was deployed.** Steps 1 and 9 of the ordered path were not taken. Gen-6 was
+- **There is no timelock.** Steps 1 and 9 of the ordered path were not taken. Gen-6 was
   deployed with `TIMELOCK_MIN_DELAY=0`, which is a documented branch of
   `script/DeploySharedReservePool.s.sol` that deploys no `TimelockController` at all
-  (`script/DeploySharedReservePool.s.sol:72-79`, `:93`). `docs/audit-history.md` carries it as
-  A3-CRITICAL-1.
-- **`script/HandOverMainnetOwnership.s.sol` was not the path to that fix.** It is hardcoded to
-  the gen-5 proxies and the gen-5 timelock (`:104-123`), both of which the v6 manifest records
-  as abandoned. Running it as written moves nothing that is in use.
+  (`script/DeploySharedReservePool.s.sol:72-79`, `:93`). One key is the owner, the guardian and
+  the protocol treasury, and every `_authorizeUpgrade` in the stack is a bare `onlyOwner`, so an
+  upgrade lands in one transaction. The manifest records this as a deliberate open item, not an
+  oversight, and as a launch blocker for third-party deposits. `docs/audit-history.md` carries it
+  as A3-CRITICAL-1.
+- **`script/HandOverMainnetOwnership.s.sol` is not the path to that fix.** It is hardcoded to the
+  gen-5 proxies and to the gen-5 timelock (`script/HandOverMainnetOwnership.s.sol:104-123`), both
+  of which the v6 manifest records as abandoned. Running it as written moves nothing that is in
+  use. It needs retargeting and a `SALT_VERSION` bump first.
 - **Gen-4 has been unwound.** All five deployer LP positions were burned to zero liquidity and
   the deployer's brands were redeemed 1:1. What is left in the gen-4 reserve backs brand tokens
   held by third parties, and it stays redeemable because `SharedReservePool._redeem` carries no
@@ -29,37 +30,6 @@ the list of things that held.
   are not true now.
 - **The doc defect item at the end of this file is closed.** `docs/ASSET_MARKETS_MAINNET.md` has
   been rewritten and no longer describes gen-1.
-
-**What has changed since, and makes the sections below wrong rather than merely dated:**
-
-- **Custody is now a 2-of-3 Gnosis Safe**, `0x28569c1716EF81f307d666A1EC08bDAE92AC0373`, v1.4.1.
-  It owns all twelve two-step handles and all four beacons. The deployer EOA
-  `0xeA6Af6c49cdf4654bCC72007d2095121BB2812A9` is no longer owner of anything and is no longer
-  the guardian. So §1's central claim — that one hot key can rewrite the protocol — no longer
-  describes the chain. **There is still no upgrade timelock**, which is the part of §1 that does
-  still hold: two signatures replace any implementation in one transaction.
-  `deployments/safe-batches/` records the migration and
-  `test/OwnershipMigrationMainnetFork.t.sol` pins the end state.
-- **The guardian was rotated onto its own hot key**, `0xc1d844d6478e450E62293882d2d6739c4a8693F9`.
-  It can halt and cannot resume. The "guardian and owner are the same key" gap §1 describes is
-  closed.
-- **The protocol fee moved from `beforeSwap` to `afterSwap`**, onto the swap's unspecified leg,
-  computed from the delta the pool actually produced. On an exact-input swap it therefore comes
-  out of the OUTPUT token. `beforeSwap` now returns `ZERO_DELTA` and only writes an oracle
-  observation. Anything anywhere describing the fee as skimmed off the input is wrong.
-- **`MAX_FEE_PIPS` was lowered from 50000 to 10000** (1%), and a **one-hour delay on fee
-  INCREASES** was added to both the hook and the reserve's redemption fee. Decreases are
-  immediate and cancel a pending increase.
-- **`SharedReservePool.redeem(token, amount, receiver)` is now strict**: it derives its floor
-  from `previewRedeem` and reverts rather than under-paying. Integrators should use the
-  four-argument overload.
-- **The launch fee split is now 40/30/30** — creator, LP fund, protocol.
-- **Verification is done, through Sourcify.** Item 7 below ("Blockscout verification untested")
-  is closed, but not the way it was framed: Blockscout's API sits behind a Cloudflare challenge
-  and is not the route. `script/verify-mainnet-sourcify.sh` publishes standard-JSON input to
-  Sourcify, which Blockscout then imports; the live contracts came back `exact_match`.
-- **Steps 10 and 11 of the ordered path point outside this repository.** The sUSDai keeper and
-  the web application are not in this contracts-only tree.
 
 ---
 
@@ -234,9 +204,9 @@ at 0.000032 ETH. Fund both chains with comfortable headroom before starting.
 ## 5. `buybackBurnBps` — moot, withdraw the finding
 
 The overnight audit flagged an unbounded `buybackBurnBps` setter. It does not apply to
-anything that deploys: `grep -rln buybackBurnBps src/` returns **nothing**. The symbol existed
-only in `vendor/pons-v2/`, the upstream reference fork, which was never compiled into a deploy
-and is not in this contracts-only checkout at all. The buyback itself is gone from
+anything that deploys: `grep -rln buybackBurnBps src/` returns **nothing**. The symbol exists
+only in `vendor/pons-v2/`, which is the upstream reference fork — never compiled into a
+deploy, referenced from `src/` only in provenance comments. The buyback itself is gone from
 this codebase: `BuybackEngine` and `AssetLockbox` were removed and float yield now streams to
 LPs (`BrandFeeVault`, commit `1a13a28`). **No action needed.**
 

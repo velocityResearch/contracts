@@ -46,9 +46,9 @@ import {StackFixture} from "../helpers/StackFixture.sol";
 ///         Quoting a market in someone's dollar makes that dollar the settlement currency of a
 ///         market they did not open, so only its operator — or this factory's owner — may do it.
 ///
-///         **And the income path still works, funded differently.** `harvest` claims a treasury
-///         this vault does not administer and therefore reverts; `sweep` splits whatever the
-///         vault was *sent*, which is how an issuer pays one of the pools quoting their dollar.
+///         **And the income path still works, funded differently.** `sweep` splits whatever
+///         the vault was *sent*, which is how an issuer pays one of the pools quoting their
+///         dollar.
 contract SharedQuoteMarketTest is Test, StackFixture {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
@@ -180,14 +180,6 @@ contract SharedQuoteMarketTest is Test, StackFixture {
         usdg.mint(address(this), amount);
         usdg.approve(address(reservePool), amount);
         reservePool.mint(brand, amount, to);
-    }
-
-    /// @dev Grow the reserve's yield the way the mock source models it: real USDG handed over,
-    ///      raising the index for every brand deployed in it.
-    function _accrueInTheReserve(uint256 amount) internal {
-        usdg.mint(address(this), amount);
-        usdg.approve(address(yieldSource), amount);
-        yieldSource.simulateYield(address(usdg), amount);
     }
 
     // ─── The market is quoted in the dollar ──────────────────────────────
@@ -510,36 +502,5 @@ contract SharedQuoteMarketTest is Test, StackFixture {
         assertEq(distributor.totalNotified(), toLps, "which was told about it");
         assertGt(distributor.rewardRate(), 0, "so a reward period is running");
         assertEq(vault.balance(), 0, "nothing stranded in the vault");
-    }
-
-    /// @notice `harvest` reverts for a shared-quote vault, and that is the design.
-    ///
-    ///         The vault does not administer the dollar's treasury — the issuer does, because
-    ///         the dollar's float is not this pool's income — and `PoolBrandTreasury.claim` is
-    ///         `onlyAdmin`. Splitting one dollar's float across the pools quoting it would need
-    ///         each pool's share of it, and a v4 pool's balances live in the singleton where
-    ///         nobody can read them per pool, so the factory must not invent that policy.
-    function test_harvest_revertsForASharedQuoteVaultThatDoesNotAdministerTheDollar() public {
-        (, address vaultAddress,,) = _openShared(address(asset), issuer);
-
-        // A float worth arguing over: a million of the dollar outstanding, earning in the
-        // reserve. Without this the claim below would be a no-op and prove nothing.
-        _sendBrand(stranger, 1_000_000e6);
-        _accrueInTheReserve(10_000e6);
-
-        uint256 pending = BrandFeeVault(vaultAddress).pendingYield();
-        assertGt(pending, 0, "the dollar's float has earned");
-
-        vm.prank(keeper);
-        vm.expectRevert(PoolBrandTreasury.OnlyAdmin.selector);
-        BrandFeeVault(vaultAddress).harvest();
-
-        // Not a lockout: the yield the market's vault could not take is the issuer's, and it
-        // reaches them. `setAdmin` is callable only by the current admin, so had creation
-        // handed the admin to this pool's vault there would be no way back.
-        vm.prank(issuer);
-        uint256 claimed = PoolBrandTreasury(brandTreasury).claim(issuer);
-        assertApproxEqAbs(claimed, pending, 1, "the issuer claims their dollar's float");
-        assertEq(usdg.balanceOf(issuer), claimed, "and is paid it");
     }
 }

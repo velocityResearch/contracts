@@ -107,8 +107,9 @@ contract LaunchRouter is ReentrancyGuard {
     ///         crossing reserves is a redemption and a mint, priced by the reserve being left,
     ///         which is the holder's decision to make rather than a leg buried in a trade.
     error BrandNotInLaunchReserve(address token, address reserve);
-    /// @notice The quote brand is not approved for launching, so it carries no economics to
-    ///         read the launch fee and the reserve from. Checked before anything is pulled.
+    /// @notice The quote brand's reserve is closed to launches, so there are no economics to
+    ///         read the launch fee from. Checked before anything is pulled. A token that is
+    ///         not a launchable brand at all fails earlier, with the factory's own reason.
     error PairTokenNotApproved(address pairToken);
     /// @notice The funding leg delivered less than the launch fee alone, so there is nothing
     ///         to launch with. Only reachable through a quote brand that taxes transfers.
@@ -530,17 +531,19 @@ contract LaunchRouter is ReentrancyGuard {
         return (record.curve, record.pairToken, SharedReservePool(record.reserve));
     }
 
-    /// @dev The reserve and launch fee of an approved quote brand. Read before anything moves,
-    ///      so an unapproved brand fails here rather than after the caller's funds have been
-    ///      pulled and converted into something the factory will refuse.
+    /// @dev The reserve and launch fee of a quote brand whose reserve is open. Read before
+    ///      anything moves, so a refused brand fails here rather than after the caller's funds
+    ///      have been pulled and converted into something the factory will refuse. The factory
+    ///      resolves the brand's reserve itself and reverts for anything that is not a brand
+    ///      it could ever launch against.
     function _launchEconomics(address pairToken)
         private
         view
         returns (SharedReservePool reserve, uint256 launchFee)
     {
-        (address reserveAddress,,, uint256 fee,, bool approved) =
-            factory.pairTokenEconomics(pairToken);
-        if (!approved) revert PairTokenNotApproved(pairToken);
-        return (SharedReservePool(reserveAddress), fee);
+        (address reserveAddress, LaunchFactory.ReserveEconomics memory economics) =
+            factory.launchEconomics(pairToken);
+        if (!economics.approved) revert PairTokenNotApproved(pairToken);
+        return (SharedReservePool(reserveAddress), economics.launchFee);
     }
 }

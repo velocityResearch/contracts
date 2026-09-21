@@ -66,7 +66,7 @@ it now than guess.
 Yes, on Sourcify, chain 4663. Two levels, and the distinction is worth stating:
 
   - implementations and non-proxy contracts: exact_match
-    e.g. ProtocolFeeHook impl  0xd4AC6b17338866E43E1922cfb563A81Ff36b425B
+    e.g. ProtocolFeeHook impl  0xfe4014D1ee20cC77349fAd24C1e9CeA69b03db03 (since 2026-09-21; 0xd4AC6b17338866E43E1922cfb563A81Ff36b425B before)
          MarketLens            0x704E7a0e7864250303B05b25EabC2417CE99ceb6
   - the ERC-1967 proxies: match (metadata-level)
     ProtocolFeeHook      0xc9932584c5154e4F58313a2e5423522E74e540Cc

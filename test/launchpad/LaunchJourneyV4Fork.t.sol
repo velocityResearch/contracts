@@ -20,6 +20,7 @@ import {SwapParams} from "v4-core/types/PoolOperation.sol";
 import {PoolSwapTest} from "v4-core/test/PoolSwapTest.sol";
 
 import {SharedReservePool} from "../../src/pool/SharedReservePool.sol";
+import {PoolBrandTreasury} from "../../src/pool/PoolBrandTreasury.sol";
 import {MorphoBlueYieldSource} from "../../src/yield/MorphoBlueYieldSource.sol";
 import {AssetMarketFactory} from "../../src/markets/AssetMarketFactory.sol";
 import {BrandFeeVault} from "../../src/markets/BrandFeeVault.sol";
@@ -189,13 +190,18 @@ contract LaunchpadJourneyV4ForkTest is Test, StackFixture {
         _deployLaunchpad();
 
         // The brand every launch here is quoted in, registered on the default reserve the way
-        // any community registers theirs.
-        (quoteBrand,) = marketFactory.registerBrand("Launch Dollar", "launchUSD");
+        // any community registers theirs. Registering through the market factory leaves this
+        // contract as the treasury's admin, which is the party that opts the brand into
+        // sharing the float yield of the markets it quotes — a launch re-reads that opt-in
+        // for its quote brand every time, so it is still required here.
+        address quoteTreasury;
+        (quoteBrand, quoteTreasury) = marketFactory.registerBrand("Launch Dollar", "launchUSD");
+        PoolBrandTreasury(quoteTreasury).setFactory(address(marketFactory));
+        // Terms are written once against the RESERVE and serve every brand of it.
         vm.prank(owner);
-        launchFactory.setPairTokenEconomics(
-            quoteBrand,
-            LaunchFactory.PairTokenEconomics({
-                reserve: address(reserve),
+        launchFactory.setReserveEconomics(
+            address(reserve),
+            LaunchFactory.ReserveEconomics({
                 phantomQuote: PHANTOM_QUOTE,
                 graduationThreshold: GRADUATION_THRESHOLD,
                 launchFee: LAUNCH_FEE,
@@ -280,6 +286,7 @@ contract LaunchpadJourneyV4ForkTest is Test, StackFixture {
     ///         pool, and nothing downstream would notice until liquidity failed to appear where
     ///         a chart looked for it.
     function test_fork_step2_theLiveSingletonHoldsThePoolTheLaunchImplies() public {
+        uint256 brandsBefore = reserve.allBrandTokensLength();
         Graduated memory g = _graduate();
         uint256 marketId = launchFactory.getLaunchedToken(token).marketId;
 
@@ -304,9 +311,12 @@ contract LaunchpadJourneyV4ForkTest is Test, StackFixture {
         assertEq(feeHook.feeRecipientOf(key.toId()), protocolTreasury);
         assertEq(feeHook.feePipsFor(key.toId()), PROTOCOL_FEE_PIPS);
 
-        assertEq(IERC20Metadata(g.unit).symbol(), "CAT.d", "the market's own dollar");
-        assertEq(IERC20Metadata(g.unit).name(), "CAT Market Dollar");
-        assertTrue(reserve.isRegistered(g.unit), "a brand of the same reserve");
+        // The market is quoted in the dollar the curve was quoted in. Graduation registers no
+        // brand of its own, and makes no claim on the one it uses.
+        assertEq(g.unit, quoteBrand, "the launch's own dollar, not a fresh <SYM>.d");
+        assertEq(reserve.allBrandTokensLength(), brandsBefore, "and no new brand was minted");
+        assertTrue(marketFactory.isSharedQuote(marketId), "a shared-quote market");
+        assertEq(marketFactory.marketOfBrand(quoteBrand), 0, "the brand belongs to no market");
 
         console.log("pool id:");
         console.logBytes32(g.poolId);
@@ -370,7 +380,11 @@ contract LaunchpadJourneyV4ForkTest is Test, StackFixture {
             "the distributor custodies it"
         );
         assertEq(dist.stakerOf(g.positionId), address(locker), "and the locker is the staker");
-        assertEq(dist.totalStaked(), POSM.getPositionLiquidity(g.positionId));
+        // Weighed as capital and the only stake in the book, but weightless in the stream:
+        // recording the lock renounced the reward stream that rides alongside the position.
+        assertEq(dist.positionCountOf(address(locker)), 1, "the one position is the locker's");
+        assertGt(dist.stakedWeightOfPosition(g.positionId), 0, "the position carries weight");
+        assertEq(dist.totalStaked(), 0, "and it draws nothing from the stream");
 
         // The position really is in this market's pool, over the whole range.
         (PoolKey memory key, uint256 info) = POSM.getPoolAndPositionInfo(g.positionId);
@@ -468,69 +482,59 @@ contract LaunchpadJourneyV4ForkTest is Test, StackFixture {
     /// @notice The locked position earns like any other LP, and `LaunchLocker.collect` turns
     ///         that into claimable balances for the creator and the protocol.
     ///
-    ///         Both legs are real: the swap fees are Uniswap's own arithmetic, collected out of
-    ///         the deployed `PositionManager` by `LpRewardDistributor.collectFees`, and the
-    ///         reward is Morpho interest on the market's float, harvested and streamed by the
-    ///         market's own vault.
-    function test_fork_step5_realFeesAndRealYieldReachTheEscrow() public {
+    ///         The fees are real: Uniswap's own arithmetic, collected out of the deployed
+    ///         `PositionManager` by `LpRewardDistributor.collectFees`. There is no second leg.
+    ///         The lock renounced its reward stream when it was recorded, so the float yield
+    ///         behind the quote brand stays with the market's other liquidity providers and
+    ///         never passes through here.
+    function test_fork_step5_realFeesReachTheEscrow() public {
         Graduated memory g = _graduate();
         uint256 marketId = launchFactory.getLaunchedToken(token).marketId;
         AssetMarketFactory.Market memory m = marketFactory.market(marketId);
         LpRewardDistributor dist = LpRewardDistributor(m.lpDistributor);
-        BrandFeeVault vault = BrandFeeVault(m.feeVault);
 
         // Trade both ways, so the position accrues fees in the unit and in the token.
         _tradeBothWays(marketId, g.unit, 400e6);
-
-        // Real Morpho interest on the float that backs the market's unit, harvested and
-        // streamed to whoever staked liquidity — which is the locker, and only the locker.
-        _accrueMorpho(180 days);
-        uint256 interest = vault.harvest();
-        assertGt(interest, 0, "the market's float earned");
-        (, uint256 toLps) = vault.sweep();
-        vm.warp(dist.periodFinish());
-        assertGt(dist.earned(address(locker)), 0, "and the stream reached the lock");
 
         uint256 lockedBefore = locker.lockedSupply(token);
         // Graduation may already have parked the mint's unit dust in the escrow, so every
         // escrow claim below is asserted as a delta rather than as a total.
         uint256 creatorUnitBefore = feeEscrow.balanceOfToken(creatorFeeRecipient, g.unit);
         uint256 protocolUnitBefore = feeEscrow.balanceOfToken(protocolFeeRecipient, g.unit);
-        (uint256 unitOut, uint256 tokenOut, uint256 yieldOut) = locker.collect(token);
+        uint256 creatorTokenBefore = feeEscrow.balanceOfToken(creatorFeeRecipient, token);
+        uint256 protocolTokenBefore = feeEscrow.balanceOfToken(protocolFeeRecipient, token);
+        (uint256 unitOut, uint256 tokenOut) = locker.collect(token);
 
-        assertGt(unitOut, 0, "unit-side swap fees plus the float reward");
+        assertGt(unitOut, 0, "unit-side swap fees");
         assertGt(tokenOut, 0, "token-side swap fees");
-        assertGt(unitOut, toLps, "the reward alone is not all of it: fees came too");
-        assertApproxEqAbs(yieldOut, toLps, 1e3, "the yield leg is what the vault swept");
 
-        // Three recipients and two creator rates: the LP-fee leg splits on the rate the
-        // launch was sold on and snapshotted into the lock, the float-yield leg on the
-        // factory's live one, the LP fund takes its live share out of both, and the protocol
-        // keeps whatever is left of each. The rates are read back off the factory and the
-        // locked position rather than restated here, so retuning one moves the expectation
-        // instead of breaking the test.
-        uint256 feeUnit = unitOut - yieldOut;
+        // Three recipients on one rate each: the creator takes the share the launch was sold
+        // on and snapshotted into the lock, the LP fund its live share out of the protocol's
+        // remainder, and the protocol keeps what is left. The rates are read back off the
+        // factory and the locked position rather than restated here, so retuning one moves
+        // the expectation instead of breaking the test.
         uint16 creatorBps = locker.lockedPosition(token).creatorShareBps;
-        uint16 yieldBps = launchFactory.graduatedCreatorYieldShareBps();
         uint16 fundBps = launchFactory.graduatedLpFundShareBps();
 
-        uint256 creatorUnit = feeUnit * creatorBps / 10_000 + yieldOut * yieldBps / 10_000;
-        uint256 fundUnit = feeUnit * fundBps / 10_000 + yieldOut * fundBps / 10_000;
+        uint256 creatorUnit = unitOut * creatorBps / 10_000;
+        uint256 fundUnit = unitOut * fundBps / 10_000;
         uint256 creatorToken = tokenOut * creatorBps / 10_000;
         uint256 fundToken = tokenOut * fundBps / 10_000;
 
-        assertGt(creatorUnit, 0, "the creator earned on both unit legs");
+        assertGt(creatorUnit, 0, "the creator earned on the unit leg");
         assertEq(
             feeEscrow.balanceOfToken(creatorFeeRecipient, g.unit) - creatorUnitBefore, creatorUnit
         );
         assertEq(
             feeEscrow.balanceOfToken(protocolFeeRecipient, g.unit) - protocolUnitBefore,
             unitOut - creatorUnit - fundUnit,
-            "the protocol keeps the remainder of both unit legs"
+            "the protocol keeps the remainder of the unit leg"
         );
-        assertEq(feeEscrow.balanceOfToken(creatorFeeRecipient, token), creatorToken);
         assertEq(
-            feeEscrow.balanceOfToken(protocolFeeRecipient, token),
+            feeEscrow.balanceOfToken(creatorFeeRecipient, token) - creatorTokenBefore, creatorToken
+        );
+        assertEq(
+            feeEscrow.balanceOfToken(protocolFeeRecipient, token) - protocolTokenBefore,
             tokenOut - creatorToken - fundToken
         );
 
@@ -547,7 +551,6 @@ contract LaunchpadJourneyV4ForkTest is Test, StackFixture {
 
         console.log("collected in the unit (6dp):", unitOut);
         console.log("collected in the launch token (18dp):", tokenOut);
-        console.log("of which float yield streamed to the lock:", toLps);
     }
 
     // ══ The whole thing ═══════════════════════════════════════════════════
@@ -584,9 +587,16 @@ contract LaunchpadJourneyV4ForkTest is Test, StackFixture {
         (uint160 openedAt,,,) = MANAGER.getSlot0(key.toId());
         assertGt(openedAt, 0, "the pool is live on the singleton");
 
-        // Quote side: the float became the unit 1:1, and what the mint could not take is the
-        // protocol's dust in the escrow.
-        uint256 unitDust = feeEscrow.balanceOfToken(protocolFeeRecipient, g.unit);
+        // Quote side: the raise stays in the brand it was raised in, and what the mint could
+        // not take is the protocol's dust in the escrow. The curve's own fees were credited
+        // to the same recipient in the same brand before the sweep, so they are netted out
+        // rather than counted against the seed twice. The quote brand is now shared across
+        // all three income sources, so this has to stay a delta: `protocolFees` is the
+        // snapshot taken right after the sweep, and the only escrow credit between it and
+        // this read is the mint's dust (`LaunchGraduation._parkDust`). The locked position's
+        // fees are not collected until step 4, and the hook's skim goes to the market
+        // treasury rather than the escrow, so neither lands inside this window.
+        uint256 unitDust = feeEscrow.balanceOfToken(protocolFeeRecipient, quoteBrand) - protocolFees;
         assertEq(g.unitSeeded + unitDust, launch.sweptQuote, "every unit accounted for");
         // Supply side: the pool, the lock, and the wallets that bought on the curve.
         assertEq(g.tokensSeeded + g.tokensLocked, launch.sweptTokens, "every token accounted for");
@@ -612,31 +622,48 @@ contract LaunchpadJourneyV4ForkTest is Test, StackFixture {
         (uint160 afterTrading,,,) = MANAGER.getSlot0(key.toId());
         assertTrue(afterTrading != openedAt, "the live pool moved");
 
-        // 4. Income: the hook's skim to the protocol, the position's fees and the float yield
-        //    split between the creator and the protocol.
+        // 4. Income: the hook's skim to the protocol, and the locked position's swap fees.
         (uint256 skim0, uint256 skim1) = feeHook.collect(key);
         assertGt(skim0 + skim1, 0, "both legs of the round trip paid the skim");
 
-        _accrueMorpho(180 days);
-        AssetMarketFactory.Market memory m = marketFactory.market(marketId);
-        BrandFeeVault(m.feeVault).harvest();
-        BrandFeeVault(m.feeVault).sweep();
-        vm.warp(LpRewardDistributor(m.lpDistributor).periodFinish());
-
-        (uint256 unitOut, uint256 tokenOut,) = locker.collect(token);
+        (uint256 unitOut, uint256 tokenOut) = locker.collect(token);
         assertGt(unitOut, 0, "the lock earned in the unit");
         assertGt(tokenOut, 0, "and in the token");
 
-        // 5. Everyone takes their money home, from one ledger.
+        // 5. Everyone takes their money home, from one ledger. The curve's fees and the
+        //    position's unit-side fees are the same brand now, so one claim settles both.
+        //
+        //    The quote brand is now shared across all three income sources — the curve's
+        //    fees, the graduation dust and the locked position's unit leg — and the protocol
+        //    additionally holds the launch fee, which `launchToken` pays it directly rather
+        //    than through the escrow. An absolute balance therefore no longer isolates the
+        //    claim, so both claims are measured as a delta across the claim itself.
+        uint256 creatorBrandBefore = IERC20(quoteBrand).balanceOf(creatorFeeRecipient);
+        uint256 protocolBrandBefore = IERC20(quoteBrand).balanceOf(protocolFeeRecipient);
+        assertEq(creatorBrandBefore, 0, "the creator is paid only through the escrow");
+        assertEq(
+            protocolBrandBefore,
+            LAUNCH_FEE,
+            "the only brand the protocol holds outside the escrow is the launch fee"
+        );
+
         vm.prank(creatorFeeRecipient);
-        uint256 creatorQuote = feeEscrow.claimToken(quoteBrand);
+        uint256 creatorBrand = feeEscrow.claimToken(quoteBrand);
         vm.prank(creatorFeeRecipient);
-        uint256 creatorUnit = feeEscrow.claimToken(g.unit);
+        uint256 creatorToken = feeEscrow.claimToken(token);
         vm.prank(protocolFeeRecipient);
-        uint256 protocolUnit = feeEscrow.claimToken(g.unit);
-        assertEq(creatorQuote, creatorFees, "the curve fees were claimable all along");
-        assertEq(IERC20(g.unit).balanceOf(creatorFeeRecipient), creatorUnit);
-        assertEq(IERC20(g.unit).balanceOf(protocolFeeRecipient), protocolUnit);
+        uint256 protocolBrand = feeEscrow.claimToken(quoteBrand);
+        assertGt(creatorBrand, creatorFees, "the curve fees plus the position's unit leg");
+        assertGt(creatorToken, 0, "and the position's token leg");
+        // The escrow paid out exactly what it credited, and the recipient now holds it. The
+        // quote brand is shared across all three income sources, so an absolute balance can
+        // no longer isolate this one claim.
+        assertEq(
+            IERC20(quoteBrand).balanceOf(creatorFeeRecipient) - creatorBrandBefore, creatorBrand
+        );
+        assertEq(
+            IERC20(quoteBrand).balanceOf(protocolFeeRecipient) - protocolBrandBefore, protocolBrand
+        );
 
         // The launch's own contracts end holding nothing but the lock.
         assertEq(IERC20(quoteBrand).balanceOf(address(launchFactory)), 0);

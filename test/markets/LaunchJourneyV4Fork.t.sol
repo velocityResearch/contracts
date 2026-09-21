@@ -649,7 +649,13 @@ contract LaunchJourneyV4ForkTest is Test, StackFixture {
         assertGt(depth, 0);
 
         _stake(tokenId);
-        assertEq(distributor.totalStaked(), uint256(depth), "the seeded depth is staked weight");
+        // Weight is the seeded capital, valued in `currency1`, rather than the raw depth.
+        assertGt(distributor.stakedWeightOfPosition(tokenId), 0, "the seed carries weight");
+        assertEq(
+            distributor.totalStaked(),
+            distributor.stakedWeightOfPosition(tokenId),
+            "and the whole book is that one stake"
+        );
 
         // 3. Trade, repeatedly, over a stretch of time long enough for the pool's oracle to
         //    have something to say.

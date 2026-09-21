@@ -15,6 +15,7 @@ import {
     ILaunchFeePolicy,
     ILaunchSnipeTax
 } from "../../src/launchpad/interfaces/ILaunchpad.sol";
+import {CurveSegmentConfig} from "../../src/launchpad/libraries/LaunchCurveSegments.sol";
 import {MockUSDC} from "../mocks/MockUSDC.sol";
 
 /// @dev The factory as the curve sees it: a fee policy, a snipe-tax policy, and the
@@ -69,6 +70,16 @@ contract MockLaunchFactory is ILaunchFeePolicy, ILaunchSnipeTax {
     function initialize(LaunchCurve curve, address token) external {
         curveOf[token] = curve;
         curve.initialize(token);
+    }
+
+    /// @dev The segmented overload, for a launch whose config declares a curve shape.
+    function initializeSegmented(
+        LaunchCurve curve,
+        address token,
+        CurveSegmentConfig[] calldata segments
+    ) external {
+        curveOf[token] = curve;
+        curve.initialize(token, segments);
     }
 
     function exempt(LaunchCurve curve, address who) external {

@@ -187,8 +187,10 @@ x1 = L * sqrtPriceX96 / 2^96        (raw units of currency1)
 ### 2.3 The v4 leg: exact integer math
 
 This is v4-core's `SwapMath.computeSwapStep` specialized to the no-tick-crossing case, plus
-the hook. Denominators: `lpFee = key.fee` over `1e6` (5000 on every live pool), `hookPips =
-ProtocolFeeHook.feePipsFor(poolId)` over `1e6` (5000 on every live pool). `Q96 = 2**96`.
+the hook. Denominators: `lpFee = slot0.lpFee` over `1e6` — equal to `key.fee` on a static pool
+(5000 on every live pool), and the keeper-set stored rate on a `0x800000` dynamic pool —
+`hookPips = ProtocolFeeHook.feePipsFor(poolId)` over `1e6` (5000 on every live pool).
+`Q96 = 2**96`.
 
 **Exact input, currency1 in, currency0 out (`zeroForOne = false`):**
 
