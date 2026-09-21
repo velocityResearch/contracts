@@ -60,15 +60,31 @@ it now than guess.
 ### Contracts Verified On Chain?
 
 ```
-Yes. Verified on Sourcify as exact_match.
+Yes, on Sourcify, chain 4663. Two levels, and the distinction is worth stating:
+
+  - implementations and non-proxy contracts: exact_match
+    e.g. ProtocolFeeHook impl  0xd4AC6b17338866E43E1922cfb563A81Ff36b425B
+         MarketLens            0x704E7a0e7864250303B05b25EabC2417CE99ceb6
+  - the ERC-1967 proxies: match (metadata-level)
+    ProtocolFeeHook      0xc9932584c5154e4F58313a2e5423522E74e540Cc
+    AssetMarketFactory   0x22AA61c589B90731752236c07d1455D0065bfc79
+    MarketRouter         0x7553919210B172438853C3694Fd88fAfD4bE3Eb4
+    sUSDai reserve       0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2
+    These are stock OpenZeppelin ERC1967Proxy, 130 bytes of runtime, and they verify
+    to metadata level rather than exact because the deployed metadata hash differs.
 
 Compiler v0.8.26+commit.8a97fa7a, optimizer enabled with 200 runs, viaIR true.
 Verify by standard-JSON input rather than a flattened source; the build uses viaIR
 and flattened verification will not reproduce the bytecode.
 
-Note on the explorer: Blockscout's verification API on this chain sits behind a
-Cloudflare challenge, so Sourcify is the working route. Happy to supply the exact
-standard-JSON input on request.
+One warning, because it will otherwise cost you time. Do NOT use Blockscout for this
+chain. Its verification API sits behind a Cloudflare challenge, and worse, the explorer
+currently displays the hook proxy as a verified `contracts/StubContract.sol` built with
+solc v0.8.7. That is not our source and not our compiler; it is a bogus match sitting on
+the address. The implementation is simply unverified there. Sourcify is the authoritative
+route for everything in this package.
+
+Happy to supply the exact standard-JSON input for any address on request.
 ```
 
 ### Contracts immutable?

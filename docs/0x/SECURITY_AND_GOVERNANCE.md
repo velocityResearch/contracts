@@ -476,12 +476,23 @@ curl -s https://sourcify.dev/server/v2/contract/4663/0xc9932584c5154e4F58313a2e5
 Or check the whole set with our own script: `./script/verify-mainnet-sourcify.sh --status`. The
 older `check-all-by-addresses` endpoint has been withdrawn and answers 404.
 
-**Why not Blockscout.** Blockscout's verification API on chain 4663 sits behind a Cloudflare
-challenge that returns an HTML interstitial to `forge verify-contract`, so submitting there is
-not currently possible. Blockscout imports Sourcify matches, so the source is still readable in
-its UI at `https://robinhoodchain.blockscout.com/address/<address>?tab=contract`. The *proxies*
-read as unverified there while their implementations are verified; that is a UI artifact of how
-Blockscout treats ERC-1967 proxies, not a verification gap.
+**The proxies are verified too, as of 2026-09-20.** The four ERC-1967 proxies an integrator
+touches — `ProtocolFeeHook` `0xc9932584c5154e4F58313a2e5423522E74e540Cc`,
+`AssetMarketFactory` `0x22AA61c589B90731752236c07d1455D0065bfc79`, `MarketRouter`
+`0x7553919210B172438853C3694Fd88fAfD4bE3Eb4` and the sUSDai reserve
+`0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2` — are stock OpenZeppelin `ERC1967Proxy`, 130
+bytes of runtime each, and now verify to metadata-level `match` on Sourcify. Until that date
+only the implementations were submitted, so the addresses a reviewer actually looks up read as
+unverified. That was a real gap rather than a display quirk, and it is closed.
+
+**Why not Blockscout, and what you will see there.** Its verification API on chain 4663 sits
+behind a Cloudflare challenge that returns an HTML interstitial to `forge verify-contract`, so
+submitting there is not possible. Worse, do not trust what it already shows: at the time of
+writing the explorer renders the hook proxy as a verified `contracts/StubContract.sol` compiled
+with solc `v0.8.7+commit.e28d00a7`. That is neither our source nor our compiler. It is a bogus
+match occupying the address, and the implementation `0xd4AC6b17338866E43E1922cfb563A81Ff36b425B`
+reads as unverified there despite being `exact_match` on Sourcify. Treat Sourcify as
+authoritative and Blockscout as decoration.
 
 Do not pin an implementation address in any configuration. Section 3 means implementations move.
 Pin the proxy `0xc9932584c5154e4F58313a2e5423522E74e540Cc`, which cannot move, and read the
