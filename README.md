@@ -1,8 +1,8 @@
 # Stables contracts
 
-Solidity for the Stables protocol on Robinhood Chain mainnet (`chainId 4663`): tokenized-equity
-and launchpad markets built on Uniswap v4, a 1:1 pooled reserve behind them, and the launchpad
-that graduates a bonding curve into a market.
+Solidity for the Stables protocol (**stables.fast**) on Robinhood Chain mainnet
+(`chainId 4663`): tokenized-equity and launchpad markets built on Uniswap v4, a 1:1 pooled
+reserve behind them, and the launchpad that graduates a bonding curve into a market.
 
 This repository is contracts and tests only. The web application, the indexer and the operational
 tooling live elsewhere and are not needed to build, test or audit anything here.
@@ -17,6 +17,11 @@ first. It is venue-neutral and covers quoting and settlement on one page.
 | 0x | [`docs/0x/README.md`](docs/0x/README.md) |
 | KyberSwap | [`docs/KYBERSWAP_INTEGRATION.md`](docs/KYBERSWAP_INTEGRATION.md) and [`integrations/kyberswap-dex-lib/`](integrations/kyberswap-dex-lib/) |
 | Security reviewer | [`docs/0x/SECURITY_AND_GOVERNANCE.md`](docs/0x/SECURITY_AND_GOVERNANCE.md), then [`docs/audit-history.md`](docs/audit-history.md) |
+
+**Under review.** This tree was submitted to 0x and KyberSwap on 2026-09-20 at tag
+`review/0x-kyberswap-2026-09-20`. When answering either team, diff against that tag rather
+than `main`, so the answer describes what they were actually shown. See
+[`docs/SUBMISSIONS.md`](docs/SUBMISSIONS.md).
 
 The single most important integration fact: **the protocol fee is taken in `afterSwap`, on the
 swap's unspecified leg, as a hook return delta.** It is therefore already inside the
