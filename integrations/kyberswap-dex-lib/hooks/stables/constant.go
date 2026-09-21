@@ -33,19 +33,18 @@ var (
 // What the hook adds to a swap, over an otherwise identical pool with no hook attached.
 // Measured by running the same swap against both, in the protocol's own
 // test/markets/HookGasOverhead.t.sol, which asserts these bands so they cannot drift here
-// unnoticed. Re-measured 2026-09-20:
+// unnoticed:
 //
-//	exact-in, first swap after the throttle   83,735
-//	exact-in, later in the same window        20,156
-//	exact-out, later in the same window       20,242
-//	exact-out, first touch of its currency    64,043 (one-time, a cold slot pair)
+//	exact-in, first swap of the block   79,857
+//	exact-in, later in the same block   20,156
+//	exact-out, later in the same block  20,242
 //
 // Two costs, not one. The oracle write happens in beforeSwap on every swap of a REGISTERED
-// pool -- either direction, and whatever the rate -- but at most once per
-// PoolObservations.MIN_INTERVAL, which is 15 seconds: write returns early without touching
-// the ring inside that window. The skim is a separate ERC-6909 mint in afterSwap, charged on
-// the unspecified currency; since 2026-09-19 that is both directions, so the two steady-state
-// figures above are within ~100 gas of each other rather than differing by a callback.
+// pool -- either direction, and whatever the rate -- but only once per block, because
+// PoolObservations.write is a no-op when an observation for the block already exists. The skim
+// is a separate ERC-6909 mint in afterSwap, charged on the unspecified currency; since
+// 2026-09-19 that is both directions, so the two figures above are within ~100 gas of each
+// other rather than differing by a callback.
 const (
 	gasObservation int64 = 60_000
 	gasAccrue      int64 = 20_000
