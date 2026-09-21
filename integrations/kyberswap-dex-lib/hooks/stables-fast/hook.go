@@ -1,5 +1,6 @@
-// Package stables implements ProtocolFeeHook, the singleton Uniswap v4 hook shared by every
-// Stables asset market on Robinhood chain. Source: StableLaunchpad, src/markets/ProtocolFeeHook.sol.
+// Package stablesfast implements ProtocolFeeHook, the singleton Uniswap v4 hook shared by every
+// Stables asset market on Robinhood chain. Source: the Stables protocol contracts,
+// src/markets/ProtocolFeeHook.sol.
 //
 // Permission bits 0x00CC: beforeSwap, afterSwap and both return-deltas. Only two of those four
 // are exercised, and that is deliberate — see the note on beforeSwapReturnDelta below.
@@ -38,7 +39,7 @@
 // pools offline for every trader rather than just stopping the protocol's cut. A rate INCREASE
 // is announced FEE_INCREASE_DELAY (one hour) ahead and applied by a separate permissionless
 // commit, so a rate read here is good for at least an hour; a DECREASE applies immediately.
-package stables
+package stablesfast
 
 import (
 	"context"
@@ -75,7 +76,7 @@ type Hook struct {
 }
 
 var _ = uniswapv4.RegisterHooksFactory(func(param *uniswapv4.HookParam) uniswapv4.Hook {
-	h := &Hook{Hook: &uniswapv4.BaseHook{Exchange: valueobject.ExchangeUniswapV4Stables}}
+	h := &Hook{Hook: &uniswapv4.BaseHook{Exchange: valueobject.ExchangeUniswapV4StablesFast}}
 	_ = param.HookExtra.Unmarshal(&h.Extra)
 	return h
 }, HookAddresses...)

@@ -1,4 +1,4 @@
-package stables
+package stablesfast
 
 import (
 	"context"
@@ -194,7 +194,7 @@ func TestFactory_RehydratesPersistedExtra(t *testing.T) {
 	require.True(t, ok)
 	assert.EqualValues(t, shippedFeePips, h.FeePips)
 	assert.True(t, h.Tracked)
-	assert.Equal(t, string(valueobject.ExchangeUniswapV4Stables), h.GetExchange())
+	assert.Equal(t, string(valueobject.ExchangeUniswapV4StablesFast), h.GetExchange())
 }
 
 // The permission bits are the low 14 of the hook's own address and cannot move, so the

@@ -11,7 +11,8 @@ cites do not resolve here. §1, §3 and §4 are the parts a KyberSwap reviewer n
 self-contained. Second, the protocol fee moved from `beforeSwap` to `afterSwap` on 2026-09-19
 and is now charged on the swap's UNSPECIFIED leg. If you have an older copy of this document,
 or of `docs/AGGREGATOR_INTEGRATION.md`, that is the claim to re-read: §3.3 states the current
-behaviour and the Go plugin under `integrations/kyberswap-dex-lib/hooks/stables/` implements it.
+behaviour and the Go plugin under `integrations/kyberswap-dex-lib/hooks/stables-fast/`
+implements it.
 
 `docs/AGGREGATOR_INTEGRATION.md` is the companion to this file. It describes the Stables stack to
 an aggregator in aggregator-neutral terms and was written for 0x Settler. This one is
@@ -175,7 +176,7 @@ on chain against its own stale minimum. Nobody loses money; they lose gas.
 | `web-stable/tests/kyberswap-client.test.mjs` | 11 tests, three of them pinning the §2.2 behaviour. |
 | `web-stable/tests/kyberswap-route.test.mjs` | 7 tests on the composition arithmetic. |
 | `web-stable/scripts/kyberswap-dry-run.mjs` | An end-to-end live dry run against mainnet — quote, encode, and `eth_call` the encoded swap against the real router. Signs nothing. See §2.8. |
-| `integrations/kyberswap-dex-lib/hooks/stables/` | The dex-lib hook plugin, staged for a PR into Kyber's repo. See §3.3. |
+| `integrations/kyberswap-dex-lib/hooks/stables-fast/` | The dex-lib hook plugin, staged for a PR into Kyber's repo. See §3.3. |
 
 ### 2.4 Slippage across two venues — the bug this design avoids
 
@@ -408,9 +409,13 @@ Registration for a **standalone source** is four steps: an exchange constant in
 Naming is `<protocol>-<family>`; `-v4` is reserved for V4/hooks and `-prop` for proprietary
 venues.
 
-A **hook plugin is much less than that** — one exchange constant and nothing else. Every hook
-shares `DexType = "uniswap-v4"` and differs only by its `Exchange` string, so `pkg/pooltypes` is
-not touched and msgpack is not regenerated. That is the whole reason §3.3 is the cheap ask.
+A **hook plugin is much less than that** — one exchange constant plus a regenerated
+`pkg/msgpack/register_pool_types.gen.go`. Every hook shares `DexType = "uniswap-v4"` and differs
+only by its `Exchange` string, so `pkg/pooltypes` is not touched and no factory registration is
+needed. Do not skip the generate step: that generated file is the *only* place v4 hook packages
+are imported, so its `RegisterConcreteType` line is what fires the package's
+`RegisterHooksFactory` side effect. Skip it and the plugin compiles, never registers, and
+`generate-check` fails on the dirty tree. That is still the whole reason §3.3 is the cheap ask.
 
 Reviewers hold contributors to a specific set of correctness rules, worth knowing before writing
 anything: `CalcAmountOut` must be pure (no mutation on success *or* failure); `UpdateBalance`
@@ -524,8 +529,16 @@ Three ways the plugin must differ from the `cashcat` template, all of them easy 
 
 A hook plugin is also a much smaller change than a new source: every hook shares
 `DexType = "uniswap-v4"` and differs only by its `Exchange` constant, so `pkg/pooltypes` is not
-touched and msgpack is not regenerated. One line in `pkg/valueobject/exchange.go` and the package
-itself.
+touched. One line in `pkg/valueobject/exchange.go`, the package itself, and
+`go generate ./pkg/msgpack/...` to emit the import that registers it.
+
+**The exchange id is `uniswap-v4-stables-fast`.** It is the protocol's actual name — the domain
+is **stables.fast**, and the on-chain branding matches (`AIUSD.name()` is `"Stables AI USD"`).
+It also avoids a collision that bare `uniswap-v4-stables` would have caused:
+`uniswap-v4-stable-stable` already exists in their tree, is enabled on this same chain, and
+displays as "Uniswap V4 Stable", so the two would be one character apart in their dashboards and
+ops tooling. Give both reasons in the PR and offer to rename anyway: it is their namespace, and
+a rename before merge costs nothing.
 
 **The precedent to point at is on our own chain.** `stable-stable`
 (`0x3b64660a35a09AfDe554cE545bca9166D6A23CC0`, Robinhood Chain) was added by PR #1669, opened
@@ -543,9 +556,9 @@ Robinhood has no subgraph, so the route is log-based discovery off the PoolManag
 event plus `FetchTickFromStateView` — which is what dex-lib's own guidance prefers anyway
 ("discover pools on-chain over off-chain indexes").
 
-`integrations/kyberswap-dex-lib/hooks/stables/` carries the plugin — `hook.go`, `constant.go`,
+`integrations/kyberswap-dex-lib/hooks/stables-fast/` carries the plugin — `hook.go`, `constant.go`,
 the ABI, and `hook_test.go` plus `hook_live_test.go` pinned to the live 5,000-pip rate — staged
-for a PR into `pkg/liquidity-source/uniswap/v4/hooks/stables/`. Its README lists the two edits
+for a PR into `pkg/liquidity-source/uniswap/v4/hooks/stables-fast/`. Its README lists the two edits
 their tree needs beyond the directory itself, and is the file to keep in step with the Go code.
 
 **Why this is worth doing even though routing already works:** the fallback fits a fee by probing
@@ -578,28 +591,43 @@ Two properties of the fee that a simulator needs and would not otherwise infer:
   rather than under-paying — but it binds the caller to whatever fee happens to be live when the
   transaction lands. The four-argument form lets the simulator's own quote be the bound.
 
-Two ways to give Kyber that hop:
+Three ways to give Kyber that hop, best first:
 
-**(a) `generic-simple-rate` — config only, no Go, no executor work.** An existing source driven
-entirely by a config entry (`RateMethod`, `RateUnit`, `IsRateInversed`, `IsBidirectional`,
-`PausedMethod`) plus a pool-list JSON, and it already settles on chain. Two mismatches: it carries
-**one** rate in both directions, so it can model the 1:1 mint or the fee-bearing redeem but not
-both; and it models **no capacity at all**, so Kyber would quote sizes the reserve refuses and the
-swap would revert. Genuinely usable as a first listing on the **zero-fee USDG/Morpho reserve**
-`0xdB48…d9F3`, which really is 1:1 bidirectional with no liability cap. Not usable for the sUSDai
-reserve `0xCFa8…33B2` that every live market uses today.
+**(a) `litepsm` — config only, no Go, no executor work, and the one to lead with.** `BrandPsm`
+(`src/pool/BrandPsm.sol`) exists precisely for this: it wears MakerDAO's `DssLitePsm` interface
+over one brand's mint and redeem, so an aggregator that already integrates a PSM reaches the
+reserve as a pool-list entry rather than a new venue. It is **deployed and permissionless** —
+factory `0xB1e0ED28e24d3999216979847f9473b5C7bf12bA`, and the AIUSD window on the sUSDai reserve
+is `0x1339b306Ce53d1393995D306BF7a365d4c825300`, reading `gem()` USDG (`dec()` 6), `dai()` AIUSD,
+`pocket()` the reserve, `tin()` 0, `tout()` 2004008016032065 (the fee-on-top form of the 20 bps
+fee-inclusive redemption fee). Configure it with `IsMint: true`.
 
-**(b) A `stables-reserve` source — exact, and the one to aim for.** Structurally the same as
+  The caveat to hand them rather than let them find: with `IsMint: true` their tracker
+  synthesises the dai-side reserve as `10^(9+decimals)` and only reads a real `balanceOf` on the
+  gem side (`pool_tracker.go:133-161`). So the **redeem** direction is bounded by the reserve's
+  idle USDG, conservatively, while the **mint** direction is modelled as unbounded and ignores
+  `liabilityCap`. `MarketLens.maxMint` is the real bound.
+
+**(b) `generic-simple-rate` — also config only, but strictly worse here.** Driven by
+`RateMethod`, `RateUnit`, `IsRateInversed`, `IsBidirectional`, `PausedMethod` plus a pool-list
+JSON. Two mismatches: it carries **one** rate in both directions, so it can model the 1:1 mint
+or the fee-bearing redeem but not both; and it models **no capacity at all**. Usable on the
+**zero-fee USDG/Morpho reserve** `0xdB48…d9F3`, which really is 1:1 bidirectional with no
+liability cap. Not usable for the sUSDai reserve `0xCFa8…33B2` every live market uses. Mention
+it only if they reject (a).
+
+**(c) A `stables-reserve` source — exact, and the long pole.** Structurally the same as
 `dai-usds`, `mkr-sky` or `litepsm`, all 1:1-ish converters with caps. It models the fee in the
-redeem direction only and implements `CalculateLimit()` so the router knows the reserve's capacity
-is **shared inventory across every brand in the group** rather than per pool — which is true, and
-which nothing else in dex-lib would infer. This needs Kyber's executor to learn one new call.
+redeem direction only and implements `CalculateLimit()` so the router knows the reserve's
+capacity is **shared inventory across every brand in the group** rather than per pool — which is
+true, and which nothing else in dex-lib would infer. This needs Kyber's executor to learn one
+new call, so do not open with it.
 
-`MarketLens` (`src/markets/MarketLens.sol`, written for the 0x work) is the on-chain surface both
-options read: `maxMint`, `redeemableAssets`, `brandForRedeem`, `route`. **It is deployed, at
-`0x704E7a0e7864250303B05b25EabC2417CE99ceb6`** — ownerless and stateless — so the answer to "how
-is a simulator meant to learn the caps" is a live address rather than a promise. This paragraph
-used to say "deploy it before opening either PR"; that was done on 2026-09-19.
+`MarketLens` (`src/markets/MarketLens.sol`, written for the 0x work) is the on-chain surface all
+three read: `maxMint`, `redeemableAssets`, `brandForRedeem`, `route`. **It is deployed, at
+`0x704E7a0e7864250303B05b25EabC2417CE99ceb6`** — ownerless, stateless, every function `view` —
+so the answer to "how is a simulator meant to learn the caps" is a live address rather than a
+promise.
 
 ### 3.5 What a dex-lib PR has to contain
 
@@ -608,27 +636,37 @@ explorer links, sample transactions, fixtures, and quote-comparison evidence —
 output against real on-chain fills. Full test coverage, `goimports -local`, and
 `go generate ./pkg/msgpack/...` if simulator types changed.
 
-Two of those we do not have, and they are the real blockers:
+One of those is still open, and it is the only real blocker left:
 
-- **Sample fills.** Six markets have liquidity, seeded rather than deep, and a 1,000-USDG buy
-  moves market 13 by +108%. That is enough to produce real fills to compare a simulator against,
-  at the sizes seed liquidity supports. Somebody has to produce them.
-
-  | id | Asset | spot (USDG) | impact at 100 | at 1,000 | at 10,000 |
-  |---|---|---|---|---|---|
-  | 13 | NVDA | 249.4821 | +10.73% | +108.31% | +1084.04% |
-  | 14 | SPCX | 170.8470 | +13.13% | +132.47% | +1325.86% |
-  | 15 | AI | 0.2865 | +10.93% | +110.31% | +1104.04% |
-  | 16 | SDOGE | 0.00004087 | +1.18% | +11.93% | +119.40% |
-  | 17 | ABR | 0.00000515 | +3.40% | +34.26% | +342.95% |
-  | 18 | CORGIGG | 0.0000120 | +2.22% | +22.44% | +224.61% |
-
-  Measured through `MarketLens.quoteBuy` at block 68,293,146. It is a snapshot of current seed
-  liquidity and will not describe the pools after launch, so re-measure with
-  `MarketLens.quoteBuy` at integration time. Frame the reserve as the deep leg and the pools as
-  seed liquidity being wired up ahead of the hard launch.
 - **Stability.** `deployments/asset-markets-mainnet-v6.json` documents gen-4, gen-5 and gen-6
-  inside a fortnight. A listing pins addresses; the stack needs to stop moving first.
+  inside a fortnight. A listing pins addresses; the stack needs to stop moving.
+
+**Sample fills and quote-comparison evidence are no longer missing.** Two Foundry tests produce
+them and both were re-run at head on 2026-09-20:
+`test/markets/KyberAdapterParityMainnetFork.t.sol` (4/4) runs real exact-in, exact-out and
+partial-fill swaps against the deployed hook and checks `pendingFees` against
+`floor(base·pips/1e6)`; `test/markets/HookGasOverhead.t.sol` measures the hook against an
+identical hookless pool. The quote comparison is `V4Quoter` against `/routes` back to back on
+market 13: their fitted fee is within −0.20 bps at 0.01 NVDA in, −2.03 at 0.001, −8.71 at
+0.0001 and −1,245 at 0.000001 — accurate where it matters, degrading as the amount shrinks,
+which is exactly the case for reading the rate instead of fitting it.
+
+The seed-liquidity picture below still holds and still belongs in the PR, as context for why
+the pools are thin rather than broken:
+
+| id | Asset | spot (USDG) | impact at 100 | at 1,000 | at 10,000 |
+|---|---|---|---|---|---|
+| 13 | NVDA | 249.4821 | +10.73% | +108.31% | +1084.04% |
+| 14 | SPCX | 170.8470 | +13.13% | +132.47% | +1325.86% |
+| 15 | AI | 0.2865 | +10.93% | +110.31% | +1104.04% |
+| 16 | SDOGE | 0.00004087 | +1.18% | +11.93% | +119.40% |
+| 17 | ABR | 0.00000515 | +3.40% | +34.26% | +342.95% |
+| 18 | CORGIGG | 0.0000120 | +2.22% | +22.44% | +224.61% |
+
+Measured through `MarketLens.quoteBuy` at block 68,293,146. It is a snapshot of current seed
+liquidity and will not describe the pools after launch, so re-measure with
+`MarketLens.quoteBuy` at integration time. Frame the reserve as the deep leg and the pools as
+seed liquidity being wired up ahead of the hard launch.
 
 **Verified source is no longer a blocker.** The v6 contracts are verified on **Sourcify** as
 `exact_match`, compiler `v0.8.26+commit.8a97fa7a`, optimizer 200 runs, `via_ir = true`. Sourcify
@@ -638,21 +676,26 @@ An earlier draft of this section listed "nothing in the v6 stack is verified" as
 
 ### 3.6 The ask, in the order to make it
 
-Steps 1 and 2 of the original list are **done**, and are recorded here rather than dropped
-because the PR wants to cite them: `MarketLens` is deployed at
+Everything dex-lib's contribution rules ask for now exists: `MarketLens` is deployed at
 `0x704E7a0e7864250303B05b25EabC2417CE99ceb6`, the v6 contracts are verified on Sourcify as
-`exact_match`, and `MarketLens.quoteBuy` has been reconciled against Kyber's live quote at
-block 68,293,146. The reconciliation's answer — the pools are genuinely thin and the fallback
-understates the impact — is §1.1 and §3.5. What remains:
+`exact_match`, the fee model is verified against the deployed hook by fork test, and the
+`MarketLens.quoteBuy` reconciliation against Kyber's live quote is done — its answer, that the
+pools are genuinely thin and the fallback flatters them, is §1.1 and §3.5. What remains is
+submission:
 
-1. Produce real fills on the six live pools and diff them against the plugin's simulator output.
-   This is the last thing dex-lib's contribution rules ask for that we do not have.
-2. Open the **hook plugin** PR (§3.3). Smallest possible change, an executor path that already
-   settles our pools today, and a named exchange id instead of a fitted fallback.
-3. In the same conversation, ask whether `generic-simple-rate` can be configured for the zero-fee
-   USDG reserve as an interim USDG↔brand hop, flagging its capacity blindness explicitly so nobody
-   is surprised by a revert.
-4. Propose `stables-reserve` for the capped, fee-bearing case and ask what executor work it
+1. File the **issue** first. Their PR template says the project only accepts pull requests
+   related to open issues, and a new feature should be discussed in one. Put the two open
+   questions in it: what `uniswap-v4-fee` currently does with our pools, and whether log-based
+   discovery plus `FetchTickFromStateView` is the path they want with no subgraph.
+2. Open the **hook plugin** PR (§3.3), linking the issue. Smallest possible change, an executor
+   path that already settles our pools today, and a named exchange id instead of a fitted
+   fallback. Offer the rename on the exchange id rather than defending it.
+3. In the same conversation, ask them to configure the existing **`litepsm`** source for
+   `BrandPsm` as the USDG↔brand hop (§3.4a), flagging the `IsMint: true` capacity blindness
+   explicitly so nobody is surprised by a revert on an oversized mint.
+4. Ask for the per-chain enablement flip in `pool-service`, with the chain-4663 config values.
+   A merged PR does not turn the source on.
+5. Only if they reject (3): propose `stables-reserve` (§3.4c) and ask what executor work it
    implies. Expect this to be the long pole.
 
 A dex-lib PR alone is necessary but not sufficient: the executor and per-chain enablement are
@@ -716,9 +759,14 @@ of it was ever of any use to a reviewer, so it is gone.
 What matters for locating the work:
 
 - **The dex-lib plugin is in this repository**, at
-  `integrations/kyberswap-dex-lib/hooks/stables/`. It is not part of this repository's build:
+  `integrations/kyberswap-dex-lib/hooks/stables-fast/`. It is not part of this repository's build:
   there is no `go.mod`, and the files only compile inside dex-lib's module. Its own README is the
   authority on what it does and how to apply it to a dex-lib checkout.
+- **The PR branch is not in this repository.** It is `feat/stables-fast-robinhood` in a clone of
+  `KyberNetwork/kyberswap-dex-lib` at `../kyber/kyberswap-dex-lib`, carrying those files
+  byte-for-byte plus the exchange constant and the regenerated msgpack registration. That clone
+  also holds the three gitignored submission drafts — `ISSUE_DRAFT.md`, `PR_DESCRIPTION.md` and
+  `SUBMISSION_RUNBOOK.md` — the last of which is the step-by-step for filing and opening.
 - **The contracts it models are in this repository**, principally
   `src/markets/ProtocolFeeHook.sol` (the hook), `src/markets/MarketLens.sol` (the quoting and
   capacity surface), `src/markets/MarketRouter.sol` and `src/pool/SharedReservePool.sol` (the

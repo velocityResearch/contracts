@@ -1,4 +1,4 @@
-package stables
+package stablesfast
 
 import (
 	"context"

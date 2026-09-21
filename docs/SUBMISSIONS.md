@@ -78,12 +78,27 @@ If any of these move, tell both teams rather than waiting for them to find it:
 - No external audit. Internal review only.
 - USDG's issuer can pause or freeze the reserve asset, which no code here can mitigate.
 
-### Deliberately excluded
+### What the tag does not contain, and why that is fine
 
-The Kyber adapter was submitted as `integrations/kyberswap-dex-lib/hooks/stables/` with exchange
-id `uniswap-v4-stables`. A rename to `stables-fast` and `uniswap-v4-stables-fast`, part of the stables.fast rebrand, was
-staged but uncommitted when the submission went out. It is **not** part of this tag, and `main`
-has been restored to the submitted path so the repository matches what KyberSwap was pointed at
-while the review is open. The rebrand is preserved and should land as its own deliberate commit,
-at which point **KyberSwap must be told**: both the directory and the exchange id move, and they
-were pointed at both directly.
+At the tag the Kyber adapter sits at `integrations/kyberswap-dex-lib/hooks/stables/` with
+exchange id `uniswap-v4-stables`. The `stables.fast` rebrand was staged but uncommitted when
+the tag was cut, so the tag shows the pre-rebrand names.
+
+**The pull request that KyberSwap actually received uses the rebranded names.**
+[KyberNetwork/kyberswap-dex-lib#1699](https://github.com/KyberNetwork/kyberswap-dex-lib/pull/1699),
+opened 2026-09-21 from `Snojj25/kyberswap-dex-lib:feat/stables-fast-robinhood`, registers
+`uniswap-v4-stables-fast` under `hooks/stables-fast/`. `main` here has been realigned to match
+that branch, so the tag and `main` differ on this point by design: the tag records what the 0x
+documentation described, and `main` tracks what Kyber is reviewing.
+
+So when answering KyberSwap, diff against the PR branch rather than the tag. When answering 0x,
+use the tag. Nothing about the contracts differs between them; only the adapter's directory and
+exchange id changed, and neither is on chain.
+
+### Review activity since submission
+
+PR #1699 received one automated review comment, from GitHub Copilot: `Track`'s RPC path was
+covered only by live tests that skip when `CI` is set. Answered by `hook_track_test.go`, which
+stubs the JSON-RPC endpoint and covers the ordinary decode, the unregistered sentinel, a rate
+above `MAX_FEE_PIPS`, and the ceiling itself. **No contract change was required**, and none was
+made; the hook Solidity is untouched since the tag.

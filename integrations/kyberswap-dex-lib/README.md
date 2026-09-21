@@ -5,12 +5,36 @@ in this repository before it becomes a pull request against theirs. **Nothing he
 repository's build.** There is no `go.mod`: these files only compile inside dex-lib's module, and
 `gofmt` is the only check that runs on them locally.
 
-**This directory is the source of truth.** The PR branch (`feat/stables-robinhood` in a dex-lib
-clone) carries these files byte-for-byte, plus the two registration edits that only make sense
-inside their module — the exchange constant in `pkg/valueobject/exchange.go` and the blank import
-that triggers the package's `RegisterHooksFactory` side effect. `pkg/pooltypes` is NOT touched
-and msgpack is NOT regenerated; see "Why a hook plugin" below for why. Edit here, copy there.
-The two drifted once already, and the copy in the branch is the one that gets reviewed.
+**The pull request is open: [KyberNetwork/kyberswap-dex-lib#1699][pr].** Opened 2026-09-21 from
+`Snojj25/kyberswap-dex-lib:feat/stables-fast-robinhood`. That branch is now the authoritative
+copy, because it is what gets reviewed and what an automated review has already commented on;
+this directory is kept byte-identical to it. If the two disagree, the branch wins and this
+directory is stale.
+
+[pr]: https://github.com/KyberNetwork/kyberswap-dex-lib/pull/1699
+
+The branch carries these files byte-for-byte, plus the two registration edits that only make
+sense inside their module — the exchange constant
+`ExchangeUniswapV4StablesFast = "uniswap-v4-stables-fast"` in `pkg/valueobject/exchange.go`, and
+`pkg/msgpack/register_pool_types.gen.go` regenerated, which is where the blank import that
+triggers `RegisterHooksFactory` actually lands. `pkg/pooltypes` is NOT touched and no new
+`DexType` is added; see "Why a hook plugin" below. Edit here, copy there. The two drifted once
+already, and the copy in the branch is the one that gets reviewed.
+
+### Review history
+
+`hook_track_test.go` answers the one review comment the PR has received. GitHub Copilot observed
+that `Track`'s RPC path — the multicall that decodes `feePipsFor`, reads registration from
+`feeRecipientOf`, and rejects a rate above `MAX_FEE_PIPS` — was exercised only by
+`hook_live_test.go`, and both live tests `t.Skip()` when `CI` is set. CI could therefore pass
+with the ABI wiring or the rate-tracking logic broken, which is exactly the failure that would
+mis-price every pool this package is responsible for without anything going red.
+
+The new file stubs the JSON-RPC endpoint and encodes a `Multicall3.aggregate` return, following
+`pkg/liquidity-source/uniswap/v4/pool_tracker_hook_state_test.go`. It takes `Track` from only
+its clientless branch to 92.3% statement coverage with `CI` set, and it was checked by mutation:
+removing the ceiling check fails `TestTrack_RejectsARateAboveTheCeiling`, and hardcoding
+`Registered: true` fails `TestTrack_UnregisteredPoolIsTrackedAndFree`. No non-test file changed.
 
 Background, the measurements behind it, and the order to make the ask in:
 `docs/KYBERSWAP_INTEGRATION.md` §3.
@@ -19,7 +43,7 @@ Background, the measurements behind it, and the order to make the ask in:
 
 | Staged at | Lands at | What it does |
 |---|---|---|
-| `hooks/stables/` | `pkg/liquidity-source/uniswap/v4/hooks/stables/` | A `Hook` plugin for `ProtocolFeeHook`, so Kyber prices our v4 pools from the rate the contract returns instead of one fitted from quoter probes |
+| `hooks/stables-fast/` | `pkg/liquidity-source/uniswap/v4/hooks/stables-fast/` | A `Hook` plugin for `ProtocolFeeHook`, so Kyber prices our v4 pools from the rate the contract returns instead of one fitted from quoter probes |
 
 ## Why a hook plugin and not a new liquidity source
 
@@ -88,9 +112,9 @@ ours; it is the closest thing to a worked example of this exact submission. Meas
 external v4 hook PRs generally is 1–8 days.
 
 A hook plugin is a deliberately small change: every hook shares `DexType = "uniswap-v4"` and
-differs only by its `Exchange` constant, so `pkg/pooltypes` is untouched and msgpack is not
-regenerated. Contrast the reserve leg (`docs/KYBERSWAP_INTEGRATION.md` §3.4), which would be a
-standalone source and does need all three.
+differs only by its `Exchange` constant, so `pkg/pooltypes` is untouched and no new `DexType`
+is added. Contrast the reserve leg (`docs/KYBERSWAP_INTEGRATION.md` §3.4), which would be a
+standalone source and does need all of that.
 
 **A merged PR does not enable the source.** Which sources run on which chain is Kyber-side
 deployment config in their `pool-service`, invisible from the public repo. Ask for it in the PR,
@@ -122,20 +146,29 @@ them.
 Two edits in their tree beyond copying the directory:
 
 1. `pkg/valueobject/exchange.go` — add the constant the plugin references:
-   `ExchangeUniswapV4Stables = "uniswap-v4-stables"`, in the `ExchangeUniswapV4*` block.
-2. Import the package for its registration side effect, wherever the other v4 hooks are imported.
+   `ExchangeUniswapV4StablesFast = "uniswap-v4-stables-fast"`, in the `ExchangeUniswapV4*` block,
+   after `ExchangeUniswapV4StableStable`.
+2. `go generate ./pkg/msgpack/...` — this is how the blank import lands. There is no
+   hand-written import list for v4 hooks: `pkg/msgpack/register_pool_types.gen.go` is the only
+   file that imports them, and the generated `RegisterConcreteType` line is what pulls the
+   package in and fires its `RegisterHooksFactory` side effect. Skipping it means the plugin
+   compiles and never registers, and their `generate-check` CI job fails on the dirty tree.
 
 Then, from the dex-lib root:
 
 ```
-goimports -local github.com/KyberNetwork/kyberswap-dex-lib -w pkg/liquidity-source/uniswap/v4/hooks/stables
+goimports -local github.com/KyberNetwork/kyberswap-dex-lib -w pkg/liquidity-source/uniswap/v4/hooks/stables-fast
 ```
 
 ```
-go test ./pkg/liquidity-source/uniswap/v4/hooks/stables/...
+go test ./pkg/liquidity-source/uniswap/v4/hooks/stables-fast/...
 ```
 
-`go generate ./pkg/msgpack/...` is not needed: this adds no simulator type.
+```
+go generate ./... && git status --porcelain
+```
+
+The last one must print nothing beyond the three paths above; that is their `generate-check`.
 
 ## Ground truth used in the tests
 
@@ -189,12 +222,26 @@ Reproduce the live rate on market 13 (`feePipsFor(poolId)`, selector `0xe7a39528
 curl -s -X POST -H 'content-type: application/json' --data '{"jsonrpc":"2.0","id":1,"method":"eth_call","params":[{"to":"0xc9932584c5154e4F58313a2e5423522E74e540Cc","data":"0xe7a39528f71c2e4fd2dee46e714a146f63235b4246e1cef46e40de59eec4dadedef95e61"},"latest"]}' https://rpc.mainnet.chain.robinhood.com
 ```
 
-## Still missing before the PR
+## The evidence the PR carries
 
 Their contribution rules want sample transactions and quote-comparison evidence — the
-simulator's output against real on-chain fills. **We do not have those yet, and they are the
-remaining blocker.** Somebody has to produce real fills on the six live pools and diff them
-against the simulator.
+simulator's output against real on-chain fills. **That is no longer missing.** Two Foundry
+tests in this repository produce it, and both were re-run at head on 2026-09-20:
+
+- `test/markets/KyberAdapterParityMainnetFork.t.sol` runs real exact-in, exact-out and
+  partial-fill swaps against the deployed hook on a mainnet fork and checks its `pendingFees`
+  ledger against `floor(base·pips/1e6)`. Market 18 at 5,000 pips: exact-in gross 444,188 → fee
+  2,220; exact-out net 379.314991842383758003e18 → fee 1.896574959211918790e18 against a
+  gross-up of 1.906105486645144512e18; partial fill requested 1,879,368.755123158228249e18,
+  filled 375,071.967852936688603791e18, charged on the fill.
+- `test/markets/HookGasOverhead.t.sol` measures the hook against an identical hookless pool:
+  83,735 on the first swap after the 15-second observation throttle, 20,156 exact-in and 20,242
+  exact-out after, plus a one-time 64,043 the first time a direction touches its currency.
+
+The quote comparison is `V4Quoter` against `/routes`, back to back on market 13. Their fitted
+fee tracks the pool within a couple of bps at routable sizes and degrades as the amount shrinks:
+−0.20 bps at 0.01 NVDA in, −2.03 at 0.001, −8.71 at 0.0001, −1,245 at 0.000001. At 0.1 NVDA the
+router splits into four hops and beats the single pool by 120 bps, correctly.
 
 What is no longer open is the pricing question this section used to end on. Kyber's fallback
 priced 1,000 brand units at $898 and quoted a 29% loss on a $1,000 brand→asset route, and it was
@@ -224,8 +271,9 @@ Two things follow, and both belong in the PR rather than being discovered by a r
    of this system is the reserve, not the pool: `SharedReservePool` at
    `0xCFa888f6F124452fDe0C7348328A7c73A8fd33B2` backs all six live markets and holds ~9.96M USDG
    of mint headroom with ~35,276 USDG redeemable at par less a 20 bps fee. That is the liquidity
-   worth routing through today, and it needs the separate source described in
-   `docs/KYBERSWAP_INTEGRATION.md` §3.4.
+   worth routing through today, and it reaches Kyber as configuration of their existing
+   `litepsm` source rather than as new Go — `BrandPsm` wears the `DssLitePsm` interface over the
+   reserve. See `docs/KYBERSWAP_INTEGRATION.md` §3.4.
 2. **The plugin's value is not depth, it is accuracy.** A fitted fee is a guess about a number
    the contract will hand over for free and that can move between blocks. Registering the plugin
    is what makes a discrepancy like the one above diagnosable instead of mysterious.
